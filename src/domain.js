@@ -8,6 +8,35 @@ export const JOB_STAGES = [
 
 export const TRUNKING_COLOURS = ["White", "Black", "Other"];
 
+export const REFERENCE_DATA = {
+  title: "Bosch Climate 3200i reference",
+  indoorClearances: [
+    { label: "Top", value: "150mm minimum" },
+    { label: "Left side", value: "120mm minimum" },
+    { label: "Right side", value: "120mm minimum" },
+    { label: "Floor / below unit", value: "1800mm minimum" },
+  ],
+  outdoorClearances: [
+    { label: "Above unit", value: "600mm minimum" },
+    { label: "Rear / wall side", value: "100mm minimum" },
+    { label: "Left side", value: ">300mm" },
+    { label: "Right side", value: ">600mm" },
+    { label: "Front / service space", value: "2000mm" },
+  ],
+  indoorDimensions: [
+    { output: "2.6 kW", height: 292, width: 729, depth: 200, weight: 8 },
+    { output: "3.5 kW", height: 295, width: 802, depth: 200, weight: 8.7 },
+    { output: "5.3 kW", height: 321, width: 971, depth: 228, weight: 11.2 },
+    { output: "7 kW", height: 337, width: 1082, depth: 234, weight: 13.6 },
+  ],
+  outdoorDimensions: [
+    { output: "2.6 kW", height: 495, width: 720, depth: 270, weight: 23.5 },
+    { output: "3.5 kW", height: 495, width: 720, depth: 270, weight: 23.7 },
+    { output: "5.3 kW", height: 554, width: 805, depth: 330, weight: 33.5 },
+    { output: "7 kW", height: 673, width: 890, depth: 342, weight: 43.9 },
+  ],
+};
+
 export const CHECKLIST = [
   { id: "salesforceLeadChecked", label: "Salesforce lead checked", group: "Admin" },
   { id: "installDateChecked", label: "Install date checked", group: "Dates" },
@@ -179,6 +208,37 @@ export function generateHandoverNotes(caseData) {
   ].join("\n");
 }
 
+export function generateReferenceText() {
+  const indoorClearances = REFERENCE_DATA.indoorClearances
+    .map((item) => `${item.label}: ${item.value}`)
+    .join(" | ");
+  const outdoorClearances = REFERENCE_DATA.outdoorClearances
+    .map((item) => `${item.label}: ${item.value}`)
+    .join(" | ");
+  const indoorDimensions = REFERENCE_DATA.indoorDimensions
+    .map(formatDimensionRow)
+    .join("\n");
+  const outdoorDimensions = REFERENCE_DATA.outdoorDimensions
+    .map(formatDimensionRow)
+    .join("\n");
+
+  return [
+    REFERENCE_DATA.title,
+    "",
+    "INDOOR CLEARANCES",
+    indoorClearances,
+    "",
+    "OUTDOOR CLEARANCES",
+    outdoorClearances,
+    "",
+    "INDOOR DIMENSIONS",
+    indoorDimensions,
+    "",
+    "OUTDOOR DIMENSIONS",
+    outdoorDimensions,
+  ].join("\n");
+}
+
 export function sampleCase() {
   const triageCase = createEmptyCase();
   triageCase.leadNumber = "BG-AC-1042";
@@ -225,6 +285,10 @@ function yesNo(value) {
 function checkSummary(caseData, ids) {
   const done = ids.filter((id) => caseData.checklist?.[id]).length;
   return `${done}/${ids.length} checked`;
+}
+
+function formatDimensionRow(item) {
+  return `${item.output}: H ${item.height}mm, W ${item.width}mm, D ${item.depth}mm, ${item.weight}kg`;
 }
 
 function cryptoRandomId() {

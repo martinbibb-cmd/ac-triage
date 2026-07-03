@@ -4,6 +4,7 @@ import {
   createEmptyCase,
   generateHandoverNotes,
   generateMissingQuestions,
+  generateReferenceText,
   suggestUnitSize,
 } from "../src/domain.js";
 
@@ -77,4 +78,14 @@ test("generateHandoverNotes creates short Salesforce-ready triage text", () => {
   assert.match(notes, /Location: Patio wall/);
   assert.match(notes, /Wi-Fi dongle required: Yes/);
   assert.match(notes, /Questions outstanding: None/);
+});
+
+test("generateReferenceText includes Climate 3200i clearances and dimensions", () => {
+  const reference = generateReferenceText();
+
+  assert.match(reference, /Bosch Climate 3200i reference/);
+  assert.match(reference, /Top: 150mm minimum/);
+  assert.match(reference, /Front \/ service space: 2000mm/);
+  assert.match(reference, /2.6 kW: H 292mm, W 729mm, D 200mm, 8kg/);
+  assert.match(reference, /7 kW: H 673mm, W 890mm, D 342mm, 43.9kg/);
 });
