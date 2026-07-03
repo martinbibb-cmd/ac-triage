@@ -12,6 +12,7 @@ It is designed for iPad/iPhone use through Safari and can be published directly 
 - Guided install checklist
 - Room/unit form with automatic SMALL / MED / LARGE unit suggestion
 - Separate outside unit section
+- Built-in Climate 3200i reference for clearances and unit dimensions
 - Customer call questions generated only from missing information
 - Copy short Salesforce-ready handover notes
 - Upload/import photos

@@ -1,11 +1,13 @@
 import {
   CHECKLIST,
   JOB_STAGES,
+  REFERENCE_DATA,
   TRUNKING_COLOURS,
   createEmptyCase,
   createEmptyRoom,
   generateHandoverNotes,
   generateMissingQuestions,
+  generateReferenceText,
   suggestUnitSize,
 } from "./domain.js";
 import { deleteCase, loadCases, saveCase } from "./storage.js";
@@ -144,6 +146,14 @@ function caseEditor(item) {
 
     <section class="panel">
       <div class="panel-head">
+        <h2>Reference</h2>
+        <button data-action="copy-reference">Copy reference</button>
+      </div>
+      ${referencePanel()}
+    </section>
+
+    <section class="panel">
+      <div class="panel-head">
         <h2>Photos and markup</h2>
         <label class="file-button">
           Upload photos
@@ -211,6 +221,74 @@ function outsideUnitEditor(outsideUnit) {
       <label>Clearances<textarea data-outside-field="clearances">${escapeHtml(outsideUnit.clearances)}</textarea></label>
       <label>Ladder access / height safety<textarea data-outside-field="ladderAccess">${escapeHtml(outsideUnit.ladderAccess)}</textarea></label>
       <label class="span-two">Outside unit notes<textarea data-outside-field="notes">${escapeHtml(outsideUnit.notes)}</textarea></label>
+    </div>
+  `;
+}
+
+function referencePanel() {
+  return `
+    <div class="reference-grid">
+      <article class="reference-card">
+        <h3>Indoor clearances</h3>
+        ${referenceList(REFERENCE_DATA.indoorClearances)}
+      </article>
+      <article class="reference-card">
+        <h3>Outdoor clearances</h3>
+        ${referenceList(REFERENCE_DATA.outdoorClearances)}
+      </article>
+    </div>
+    <div class="reference-grid">
+      <article class="reference-card">
+        <h3>Indoor unit dimensions</h3>
+        ${dimensionTable(REFERENCE_DATA.indoorDimensions)}
+      </article>
+      <article class="reference-card">
+        <h3>Outdoor unit dimensions</h3>
+        ${dimensionTable(REFERENCE_DATA.outdoorDimensions)}
+      </article>
+    </div>
+    <p class="hint">Reference from supplied Climate 3200i triage brief images. Confirm against current install instructions when required.</p>
+  `;
+}
+
+function referenceList(items) {
+  return `
+    <dl class="reference-list">
+      ${items.map((item) => `
+        <div>
+          <dt>${escapeHtml(item.label)}</dt>
+          <dd>${escapeHtml(item.value)}</dd>
+        </div>
+      `).join("")}
+    </dl>
+  `;
+}
+
+function dimensionTable(items) {
+  return `
+    <div class="table-scroll">
+      <table>
+        <thead>
+          <tr>
+            <th>Output</th>
+            <th>H</th>
+            <th>W</th>
+            <th>D</th>
+            <th>Kg</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${items.map((item) => `
+            <tr>
+              <th>${escapeHtml(item.output)}</th>
+              <td>${item.height}</td>
+              <td>${item.width}</td>
+              <td>${item.depth}</td>
+              <td>${item.weight}</td>
+            </tr>
+          `).join("")}
+        </tbody>
+      </table>
     </div>
   `;
 }
@@ -331,6 +409,9 @@ async function handleAction(event) {
   }
   if (action === "copy-questions") {
     await copyText(generateMissingQuestions(active).join("\n") || "No missing customer questions.");
+  }
+  if (action === "copy-reference") {
+    await copyText(generateReferenceText());
   }
   if (action === "share-case") {
     await shareCase(active);
