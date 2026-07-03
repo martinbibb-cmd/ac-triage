@@ -24,9 +24,11 @@ test("generateMissingQuestions only asks for missing handover details", () => {
   triageCase.checklist.electricMeterPhoto = true;
   triageCase.checklist.fuseBoardPhoto = true;
   triageCase.rooms[0].internalLocation = "Above patio doors";
-  triageCase.rooms[0].externalLocation = "Rear wall";
   triageCase.rooms[0].pipeRun = "Straight through wall";
   triageCase.rooms[0].trunkingColour = "White";
+  triageCase.outsideUnit.location = "Rear wall";
+  triageCase.outsideUnit.clearances = "Clear";
+  triageCase.outsideUnit.ladderAccess = "No ladder required";
 
   assert.deepEqual(generateMissingQuestions(triageCase), [
     "Where is the nearest plug socket?",
@@ -46,12 +48,18 @@ test("generateHandoverNotes creates short Salesforce-ready triage text", () => {
   triageCase.checklist.fuseBoardPhoto = true;
   triageCase.checklist.clearancesChecked = true;
   triageCase.checklist.ladderAccessChecked = true;
+  triageCase.outsideUnit = {
+    location: "Patio wall",
+    mounting: "Wall bracket",
+    clearances: "Clear side access",
+    ladderAccess: "No ladder required",
+    notes: "Keep away from bins",
+  };
   triageCase.rooms[0] = {
     ...triageCase.rooms[0],
     roomName: "Lounge",
     roomSize: "22",
     internalLocation: "Left wall",
-    externalLocation: "Patio wall",
     pipeRun: "Along skirting then outside",
     trunkingColour: "Black",
     electricalSupplyNotes: "Spare way available",
@@ -65,6 +73,8 @@ test("generateHandoverNotes creates short Salesforce-ready triage text", () => {
   assert.match(notes, /Lead: LEAD-123/);
   assert.match(notes, /ROOM 1/);
   assert.match(notes, /Unit size: MED/);
+  assert.match(notes, /OUTSIDE UNIT/);
+  assert.match(notes, /Location: Patio wall/);
   assert.match(notes, /Wi-Fi dongle required: Yes/);
   assert.match(notes, /Questions outstanding: None/);
 });

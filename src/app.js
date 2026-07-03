@@ -138,11 +138,16 @@ function caseEditor(item) {
     </section>
 
     <section class="panel">
+      <h2>Outside unit</h2>
+      ${outsideUnitEditor(item.outsideUnit || {})}
+    </section>
+
+    <section class="panel">
       <div class="panel-head">
         <h2>Photos and markup</h2>
         <label class="file-button">
-          Add photos
-          <input type="file" accept="image/*" capture="environment" multiple data-action="add-photos">
+          Upload photos
+          <input type="file" accept="image/*" multiple data-action="add-photos">
         </label>
       </div>
       <p class="hint">Tap points to draw pipe route lines. Use boxes for indoor units, outdoor units, or room outlines. Annotated images can be downloaded to Photos.</p>
@@ -178,7 +183,6 @@ function roomEditor(room, index) {
       </div>
       <div class="grid two">
         <label>Internal unit location<textarea data-room-field="internalLocation" data-room="${room.id}">${escapeHtml(room.internalLocation)}</textarea></label>
-        <label>External unit location<textarea data-room-field="externalLocation" data-room="${room.id}">${escapeHtml(room.externalLocation)}</textarea></label>
         <label>Pipe run<textarea data-room-field="pipeRun" data-room="${room.id}">${escapeHtml(room.pipeRun)}</textarea></label>
         <label>Electrical supply notes<textarea data-room-field="electricalSupplyNotes" data-room="${room.id}">${escapeHtml(room.electricalSupplyNotes)}</textarea></label>
       </div>
@@ -196,6 +200,18 @@ function roomEditor(room, index) {
         <span>Wi-Fi dongle required</span>
       </label>
     </article>
+  `;
+}
+
+function outsideUnitEditor(outsideUnit) {
+  return `
+    <div class="grid two">
+      <label>Outdoor unit location<textarea data-outside-field="location">${escapeHtml(outsideUnit.location)}</textarea></label>
+      <label>Mounting / base<textarea data-outside-field="mounting">${escapeHtml(outsideUnit.mounting)}</textarea></label>
+      <label>Clearances<textarea data-outside-field="clearances">${escapeHtml(outsideUnit.clearances)}</textarea></label>
+      <label>Ladder access / height safety<textarea data-outside-field="ladderAccess">${escapeHtml(outsideUnit.ladderAccess)}</textarea></label>
+      <label class="span-two">Outside unit notes<textarea data-outside-field="notes">${escapeHtml(outsideUnit.notes)}</textarea></label>
+    </div>
   `;
 }
 
@@ -263,6 +279,10 @@ function bindEvents() {
   app.querySelectorAll("[data-room-field]").forEach((field) => {
     field.addEventListener("input", updateRoomField);
     field.addEventListener("change", updateRoomField);
+  });
+  app.querySelectorAll("[data-outside-field]").forEach((field) => {
+    field.addEventListener("input", updateOutsideUnitField);
+    field.addEventListener("change", updateOutsideUnitField);
   });
 
   const labelInput = app.querySelector("[data-action='label-text']");
@@ -369,6 +389,14 @@ async function updateRoomField(event) {
   if (field === "roomSize" && !room.suggestedUnitSize) {
     room.suggestedUnitSize = suggestUnitSize(room.roomSize);
   }
+  await persistActive(active, false);
+  renderSoft();
+}
+
+async function updateOutsideUnitField(event) {
+  const active = selectedCase();
+  active.outsideUnit ||= {};
+  active.outsideUnit[event.target.dataset.outsideField] = event.target.value;
   await persistActive(active, false);
   renderSoft();
 }

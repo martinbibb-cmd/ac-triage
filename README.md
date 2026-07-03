@@ -11,9 +11,10 @@ It is designed for iPad/iPhone use through Safari and can be published directly 
 - Track the job stage with simple dropdowns
 - Guided install checklist
 - Room/unit form with automatic SMALL / MED / LARGE unit suggestion
+- Separate outside unit section
 - Customer call questions generated only from missing information
 - Copy short Salesforce-ready handover notes
-- Import or take photos
+- Upload/import photos
 - Mark up photos with:
   - point-to-point pipe route lines
   - indoor unit boxes

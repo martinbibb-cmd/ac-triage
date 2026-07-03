@@ -1,4 +1,4 @@
-import { sampleCase } from "./domain.js";
+import { createEmptyOutsideUnit, sampleCase } from "./domain.js";
 
 const DB_NAME = "air-con-triage";
 const DB_VERSION = 1;
@@ -33,7 +33,7 @@ export async function loadCases() {
   }
 
   return transactionRequest(db, CASE_STORE, "readonly", (store) => store.getAll())
-    .then((cases) => cases.sort((a, b) => new Date(b.updatedAt) - new Date(a.updatedAt)));
+    .then((cases) => cases.map(normalizeCase).sort((a, b) => new Date(b.updatedAt) - new Date(a.updatedAt)));
 }
 
 export async function saveCase(caseData) {
@@ -41,6 +41,15 @@ export async function saveCase(caseData) {
   const next = { ...caseData, updatedAt: new Date().toISOString() };
   await transactionRequest(db, CASE_STORE, "readwrite", (store) => store.put(next));
   return next;
+}
+
+function normalizeCase(caseData) {
+  const outsideUnit = { ...createEmptyOutsideUnit(), ...(caseData.outsideUnit ?? {}) };
+  if (!outsideUnit.location) {
+    const oldRoomLocation = caseData.rooms?.find((room) => room.externalLocation)?.externalLocation;
+    outsideUnit.location = oldRoomLocation ?? "";
+  }
+  return { ...caseData, outsideUnit };
 }
 
 export async function deleteCase(id) {

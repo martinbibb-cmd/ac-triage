@@ -193,6 +193,10 @@ button.active {
   grid-template-columns: repeat(3, minmax(0, 1fr));
 }
 
+.span-two {
+  grid-column: span 2;
+}
+
 label {
   display: grid;
   gap: 6px;
@@ -371,6 +375,10 @@ textarea {
   .grid.two,
   .grid.three {
     grid-template-columns: 1fr;
+  }
+
+  .span-two {
+    grid-column: auto;
   }
 
   .topbar,
