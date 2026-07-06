@@ -13,6 +13,9 @@ import {
 import { deleteCase, loadCases, saveCase } from "./storage.js";
 
 const app = document.querySelector("#app");
+const PHOTO_MAX_EDGE = 1600;
+const THUMB_MAX_EDGE = 420;
+const PHOTO_QUALITY = 0.82;
 
 const state = {
   cases: [],
@@ -28,10 +31,12 @@ const state = {
 init();
 
 async function init() {
+  app.innerHTML = `<div class="empty"><h2>Loading cases</h2><p>Checking local photo storage...</p></div>`;
   if ("serviceWorker" in navigator) {
     navigator.serviceWorker.register("./service-worker.js");
   }
   state.cases = await loadCases();
+  state.cases = await compactCasePhotos(state.cases);
   state.selectedId = state.cases[0]?.id ?? null;
   render();
 }
@@ -294,9 +299,10 @@ function dimensionTable(items) {
 }
 
 function photoCard(photo) {
+  const source = photo.annotatedThumbDataUrl || photo.thumbDataUrl || photo.annotatedDataUrl || photo.dataUrl;
   return `
     <article class="photo-card">
-      <img src="${attr(photo.annotatedDataUrl || photo.dataUrl)}" alt="${attr(photo.name)}">
+      <img src="${attr(source)}" alt="${attr(photo.name)}" loading="lazy" decoding="async">
       <div class="photo-actions">
         <button data-action="edit-photo" data-photo="${photo.id}">Markup</button>
         <button data-action="save-gallery" data-photo="${photo.id}">Save to gallery</button>
@@ -491,18 +497,23 @@ async function handlePhotoUpload(event) {
 }
 
 async function readPhotoFile(file) {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = () => resolve({
+  const objectUrl = URL.createObjectURL(file);
+  try {
+    const image = await loadImage(objectUrl);
+    const resized = drawImageToDataUrl(image, PHOTO_MAX_EDGE);
+    const thumb = drawImageToDataUrl(image, THUMB_MAX_EDGE);
+    return {
       id: crypto.randomUUID(),
       name: file.name,
-      dataUrl: reader.result,
+      dataUrl: resized.dataUrl,
+      thumbDataUrl: thumb.dataUrl,
       annotatedDataUrl: "",
+      annotatedThumbDataUrl: "",
       marks: [],
-    });
-    reader.onerror = () => reject(reader.error);
-    reader.readAsDataURL(file);
-  });
+    };
+  } finally {
+    URL.revokeObjectURL(objectUrl);
+  }
 }
 
 function drawMarkupCanvas() {
@@ -597,7 +608,8 @@ async function saveAnnotatedPhoto(active) {
   const canvas = document.querySelector("#markupCanvas");
   const photo = active.photos.find((entry) => entry.id === state.markup.photoId);
   if (!canvas || !photo) return;
-  photo.annotatedDataUrl = canvas.toDataURL("image/png");
+  photo.annotatedDataUrl = canvas.toDataURL("image/jpeg", PHOTO_QUALITY);
+  photo.annotatedThumbDataUrl = drawCanvasToDataUrl(canvas, THUMB_MAX_EDGE).dataUrl;
   await persistActive(active);
 }
 
@@ -613,6 +625,122 @@ async function persistActive(active, rerender = true) {
   const saved = await saveCase(active);
   state.cases = state.cases.map((item) => item.id === saved.id ? saved : item);
   if (rerender) render();
+}
+
+async function compactCasePhotos(cases) {
+  let changed = false;
+  const compacted = [];
+
+  for (const caseData of cases) {
+    const photos = [];
+    for (const photo of caseData.photos ?? []) {
+      const compactedPhoto = await compactPhoto(photo).catch(() => photo);
+      if (compactedPhoto !== photo) changed = true;
+      photos.push(compactedPhoto);
+    }
+    compacted.push({ ...caseData, photos });
+  }
+
+  if (changed) {
+    for (const caseData of compacted) {
+      await saveCase(caseData);
+    }
+  }
+
+  return compacted;
+}
+
+async function compactPhoto(photo) {
+  if (!photo?.dataUrl) return photo;
+
+  const image = await loadImage(photo.dataUrl);
+  const resized = drawImageToDataUrl(image, PHOTO_MAX_EDGE);
+  const thumb = drawImageToDataUrl(image, THUMB_MAX_EDGE);
+  const shouldReplaceData = image.naturalWidth !== resized.width || image.naturalHeight !== resized.height;
+  const next = { ...photo };
+
+  if (shouldReplaceData) {
+    const scaleX = resized.width / image.naturalWidth;
+    const scaleY = resized.height / image.naturalHeight;
+    next.dataUrl = resized.dataUrl;
+    next.marks = scaleMarks(photo.marks ?? [], scaleX, scaleY);
+    next.annotatedDataUrl = "";
+    next.annotatedThumbDataUrl = "";
+  }
+
+  if (!next.thumbDataUrl || shouldReplaceData) {
+    next.thumbDataUrl = thumb.dataUrl;
+  }
+
+  if (next.annotatedDataUrl && !next.annotatedThumbDataUrl) {
+    const annotatedImage = await loadImage(next.annotatedDataUrl);
+    next.annotatedDataUrl = drawImageToDataUrl(annotatedImage, PHOTO_MAX_EDGE).dataUrl;
+    next.annotatedThumbDataUrl = drawImageToDataUrl(annotatedImage, THUMB_MAX_EDGE).dataUrl;
+  }
+
+  return next.dataUrl !== photo.dataUrl ||
+    next.thumbDataUrl !== photo.thumbDataUrl ||
+    next.annotatedDataUrl !== photo.annotatedDataUrl ||
+    next.annotatedThumbDataUrl !== photo.annotatedThumbDataUrl ||
+    next.marks !== photo.marks
+    ? next
+    : photo;
+}
+
+function scaleMarks(marks, scaleX, scaleY) {
+  return marks.map((mark) => {
+    if (mark.type === "line" || mark.type === "box") {
+      return {
+        ...mark,
+        start: scalePoint(mark.start, scaleX, scaleY),
+        end: scalePoint(mark.end, scaleX, scaleY),
+      };
+    }
+    if (mark.type === "label") {
+      return { ...mark, point: scalePoint(mark.point, scaleX, scaleY) };
+    }
+    return mark;
+  });
+}
+
+function scalePoint(point, scaleX, scaleY) {
+  return {
+    x: Math.round((point?.x ?? 0) * scaleX),
+    y: Math.round((point?.y ?? 0) * scaleY),
+  };
+}
+
+function loadImage(source) {
+  return new Promise((resolve, reject) => {
+    const image = new Image();
+    image.onload = () => resolve(image);
+    image.onerror = () => reject(new Error("Could not load image"));
+    image.src = source;
+  });
+}
+
+function drawImageToDataUrl(image, maxEdge) {
+  const scale = Math.min(1, maxEdge / Math.max(image.naturalWidth, image.naturalHeight));
+  const width = Math.max(1, Math.round(image.naturalWidth * scale));
+  const height = Math.max(1, Math.round(image.naturalHeight * scale));
+  const canvas = document.createElement("canvas");
+  canvas.width = width;
+  canvas.height = height;
+  const context = canvas.getContext("2d", { alpha: false });
+  context.drawImage(image, 0, 0, width, height);
+  return { dataUrl: canvas.toDataURL("image/jpeg", PHOTO_QUALITY), width, height };
+}
+
+function drawCanvasToDataUrl(sourceCanvas, maxEdge) {
+  const scale = Math.min(1, maxEdge / Math.max(sourceCanvas.width, sourceCanvas.height));
+  const width = Math.max(1, Math.round(sourceCanvas.width * scale));
+  const height = Math.max(1, Math.round(sourceCanvas.height * scale));
+  const canvas = document.createElement("canvas");
+  canvas.width = width;
+  canvas.height = height;
+  const context = canvas.getContext("2d", { alpha: false });
+  context.drawImage(sourceCanvas, 0, 0, width, height);
+  return { dataUrl: canvas.toDataURL("image/jpeg", PHOTO_QUALITY), width, height };
 }
 
 function renderSoft() {

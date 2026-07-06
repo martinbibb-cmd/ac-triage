@@ -16,6 +16,7 @@ It is designed for iPad/iPhone use through Safari and can be published directly 
 - Customer call questions generated only from missing information
 - Copy short Salesforce-ready handover notes
 - Upload/import photos
+- Photos are resized locally before storage to reduce iPad Safari memory pressure
 - Mark up photos with:
   - point-to-point pipe route lines
   - indoor unit boxes
