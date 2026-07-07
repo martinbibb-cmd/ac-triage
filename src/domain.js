@@ -55,8 +55,19 @@ export const CHECKLIST = [
   { id: "planningDateConfirmed", label: "Planning date confirmed", group: "Dates" },
 ];
 
+export const WORKFLOW_STEPS = [
+  { id: "stageChecked", label: "Stage checked" },
+  { id: "preTriageComplete", label: "Pre-triage complete" },
+  { id: "customerContacted", label: "Customer contacted" },
+  { id: "photosPrepared", label: "Photos annotated / prepared" },
+  { id: "notesUploaded", label: "Handover notes uploaded" },
+  { id: "installDateConfirmed", label: "Install date confirmed" },
+  { id: "spreadsheetUpdated", label: "Spreadsheet updated / complete" },
+];
+
 export function createEmptyCase() {
   const checklist = Object.fromEntries(CHECKLIST.map((item) => [item.id, false]));
+  const workflow = Object.fromEntries(WORKFLOW_STEPS.map((item) => [item.id, false]));
   return {
     id: cryptoRandomId(),
     createdAt: new Date().toISOString(),
@@ -65,11 +76,13 @@ export function createEmptyCase() {
     customerName: "",
     address: "",
     contactNumber: "",
+    customerEmail: "",
     propertyType: "",
     jobStage: JOB_STAGES[0],
     installDate: "",
     planningDate: "",
     checklist,
+    workflow,
     outsideUnit: createEmptyOutsideUnit(),
     rooms: [createEmptyRoom()],
     photos: [],
@@ -160,6 +173,32 @@ export function generateMissingQuestions(caseData) {
   return [...new Set(questions)];
 }
 
+export function generateCustomerRequestMessage(caseData) {
+  const questions = generateMissingQuestions(caseData);
+  const name = clean(caseData.customerName);
+  const greeting = name ? `Hi ${firstName(name)},` : "Hi,";
+
+  if (!questions.length) {
+    return [
+      greeting,
+      "",
+      "Thanks, we have the triage information we need at the moment.",
+    ].join("\n");
+  }
+
+  return [
+    greeting,
+    "",
+    "We are checking the air con installation details and need a few points confirmed before handover:",
+    "",
+    ...questions.map((question) => `- ${question}`),
+    "",
+    "Please reply with the missing details when convenient.",
+    "",
+    "Thanks",
+  ].join("\n");
+}
+
 export function generateHandoverNotes(caseData) {
   const rooms = caseData.rooms?.length ? caseData.rooms : [createEmptyRoom()];
   const outsideUnit = caseData.outsideUnit ?? createEmptyOutsideUnit();
@@ -245,6 +284,7 @@ export function sampleCase() {
   triageCase.customerName = "Sample Customer";
   triageCase.address = "12 Example Road, Bristol";
   triageCase.contactNumber = "07123 456789";
+  triageCase.customerEmail = "sample@example.com";
   triageCase.propertyType = "Semi-detached house";
   triageCase.jobStage = "Needs customer call";
   triageCase.installDate = "To confirm";
@@ -276,6 +316,10 @@ export function sampleCase() {
 
 function clean(value) {
   return String(value ?? "").trim();
+}
+
+function firstName(name) {
+  return name.split(/\s+/)[0] || name;
 }
 
 function yesNo(value) {

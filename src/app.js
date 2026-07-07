@@ -3,8 +3,10 @@ import {
   JOB_STAGES,
   REFERENCE_DATA,
   TRUNKING_COLOURS,
+  WORKFLOW_STEPS,
   createEmptyCase,
   createEmptyRoom,
+  generateCustomerRequestMessage,
   generateHandoverNotes,
   generateMissingQuestions,
   generateReferenceText,
@@ -105,6 +107,7 @@ function caseEditor(item) {
         <label>Customer name<input data-field="customerName" value="${attr(item.customerName)}"></label>
         <label>Address<textarea data-field="address">${escapeHtml(item.address)}</textarea></label>
         <label>Contact number<input data-field="contactNumber" value="${attr(item.contactNumber)}"></label>
+        <label>Customer email<input type="email" data-field="customerEmail" value="${attr(item.customerEmail)}"></label>
         <label>Property type<input data-field="propertyType" value="${attr(item.propertyType)}"></label>
         <label>Job stage
           <select data-field="jobStage">${options(JOB_STAGES, item.jobStage)}</select>
@@ -114,13 +117,30 @@ function caseEditor(item) {
       </section>
 
       <section class="panel">
-        <h2>Customer call questions</h2>
+        <h2>Customer request</h2>
         <div class="questions">
           ${questionList(item)}
         </div>
-        <button data-action="copy-questions">Copy questions</button>
+        <div class="action-row">
+          <button data-action="sms-customer">Text customer</button>
+          <button data-action="email-customer">Email customer</button>
+          <button data-action="copy-request">Copy request</button>
+        </div>
+        <pre class="message-preview">${escapeHtml(generateCustomerRequestMessage(item))}</pre>
       </section>
     </div>
+
+    <section class="panel">
+      <h2>Fast workflow</h2>
+      <div class="check-grid">
+        ${WORKFLOW_STEPS.map((step) => `
+          <label class="check-tile">
+            <input type="checkbox" data-workflow="${step.id}" ${item.workflow?.[step.id] ? "checked" : ""}>
+            <span>${escapeHtml(step.label)}</span>
+          </label>
+        `).join("")}
+      </div>
+    </section>
 
     <section class="panel">
       <h2>Guided checklist</h2>
@@ -360,6 +380,9 @@ function bindEvents() {
   app.querySelectorAll("[data-check]").forEach((field) => {
     field.addEventListener("change", updateChecklistField);
   });
+  app.querySelectorAll("[data-workflow]").forEach((field) => {
+    field.addEventListener("change", updateWorkflowField);
+  });
   app.querySelectorAll("[data-room-field]").forEach((field) => {
     field.addEventListener("input", updateRoomField);
     field.addEventListener("change", updateRoomField);
@@ -416,6 +439,15 @@ async function handleAction(event) {
   if (action === "copy-questions") {
     await copyText(generateMissingQuestions(active).join("\n") || "No missing customer questions.");
   }
+  if (action === "copy-request") {
+    await copyText(generateCustomerRequestMessage(active));
+  }
+  if (action === "sms-customer") {
+    sendCustomerSms(active);
+  }
+  if (action === "email-customer") {
+    sendCustomerEmail(active);
+  }
   if (action === "copy-reference") {
     await copyText(generateReferenceText());
   }
@@ -465,6 +497,13 @@ async function updateCaseField(event) {
 async function updateChecklistField(event) {
   const active = selectedCase();
   active.checklist[event.target.dataset.check] = event.target.checked;
+  await persistActive(active);
+}
+
+async function updateWorkflowField(event) {
+  const active = selectedCase();
+  active.workflow ||= {};
+  active.workflow[event.target.dataset.workflow] = event.target.checked;
   await persistActive(active);
 }
 
@@ -746,9 +785,11 @@ function drawCanvasToDataUrl(sourceCanvas, maxEdge) {
 function renderSoft() {
   const preview = app.querySelector(".notes-preview");
   const questions = app.querySelector(".questions");
+  const message = app.querySelector(".message-preview");
   const active = selectedCase();
   if (preview && active) preview.textContent = generateHandoverNotes(active);
   if (questions && active) questions.innerHTML = questionList(active);
+  if (message && active) message.textContent = generateCustomerRequestMessage(active);
 }
 
 async function copyText(text) {
@@ -763,6 +804,26 @@ async function shareCase(active) {
   } else {
     await copyText(text);
   }
+}
+
+function sendCustomerSms(active) {
+  const number = String(active.contactNumber ?? "").replace(/[^\d+]/g, "");
+  if (!number) {
+    toast("No phone number");
+    return;
+  }
+  window.location.href = `sms:${number}&body=${encodeURIComponent(generateCustomerRequestMessage(active))}`;
+}
+
+function sendCustomerEmail(active) {
+  const email = String(active.customerEmail ?? "").trim();
+  if (!email) {
+    toast("No customer email");
+    return;
+  }
+  const subject = `Air con triage details${active.leadNumber ? ` - ${active.leadNumber}` : ""}`;
+  const body = generateCustomerRequestMessage(active);
+  window.location.href = `mailto:${encodeURIComponent(email)}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
 }
 
 async function saveImageFile(dataUrl, fileName) {

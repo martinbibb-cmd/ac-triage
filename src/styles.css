@@ -144,7 +144,8 @@ button.active {
 .toolbar,
 .panel-head,
 .photo-actions,
-.markup-tools {
+.markup-tools,
+.action-row {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
@@ -428,6 +429,19 @@ tbody th {
   background: #f8fafb;
   padding: 14px;
   font: 0.98rem/1.45 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+
+.message-preview {
+  margin: 12px 0 0;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #f8fafb;
+  padding: 12px;
+  font: 0.95rem/1.4 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  max-height: 280px;
+  overflow-y: auto;
 }
 
 .empty {
