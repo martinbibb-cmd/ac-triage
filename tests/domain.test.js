@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
   createEmptyCase,
+  generateCustomerRequestMessage,
   generateHandoverNotes,
   generateMissingQuestions,
   generateReferenceText,
@@ -34,6 +35,47 @@ test("generateMissingQuestions only asks for missing handover details", () => {
   assert.deepEqual(generateMissingQuestions(triageCase), [
     "Where is the nearest plug socket?",
   ]);
+});
+
+test("generateCustomerRequestMessage asks only for missing data", () => {
+  const triageCase = createEmptyCase();
+  triageCase.customerName = "Alex Customer";
+  triageCase.checklist.customerPhotosPresent = true;
+  triageCase.checklist.electricMeterPhoto = true;
+  triageCase.checklist.fuseBoardPhoto = true;
+  triageCase.installDate = "2026-09-10";
+  triageCase.planningDate = "2026-09-01";
+  triageCase.rooms[0].internalLocation = "Bedroom outside wall";
+  triageCase.rooms[0].pipeRun = "Straight through wall";
+  triageCase.rooms[0].trunkingColour = "White";
+  triageCase.outsideUnit.location = "Rear patio";
+  triageCase.outsideUnit.clearances = "Clear";
+  triageCase.outsideUnit.ladderAccess = "No ladder required";
+
+  const message = generateCustomerRequestMessage(triageCase);
+
+  assert.match(message, /Hi Alex,/);
+  assert.match(message, /Where is the nearest plug socket\?/);
+  assert.doesNotMatch(message, /electric meter/);
+});
+
+test("generateCustomerRequestMessage handles complete data", () => {
+  const triageCase = createEmptyCase();
+  triageCase.customerName = "Alex Customer";
+  triageCase.checklist.customerPhotosPresent = true;
+  triageCase.checklist.electricMeterPhoto = true;
+  triageCase.checklist.fuseBoardPhoto = true;
+  triageCase.installDate = "2026-09-10";
+  triageCase.planningDate = "2026-09-01";
+  triageCase.rooms[0].internalLocation = "Bedroom outside wall";
+  triageCase.rooms[0].pipeRun = "Straight through wall";
+  triageCase.rooms[0].trunkingColour = "White";
+  triageCase.rooms[0].plugLocation = "Socket beside bed";
+  triageCase.outsideUnit.location = "Rear patio";
+  triageCase.outsideUnit.clearances = "Clear";
+  triageCase.outsideUnit.ladderAccess = "No ladder required";
+
+  assert.match(generateCustomerRequestMessage(triageCase), /we have the triage information we need/);
 });
 
 test("generateHandoverNotes creates short Salesforce-ready triage text", () => {

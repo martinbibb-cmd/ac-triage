@@ -14,6 +14,8 @@ It is designed for iPad/iPhone use through Safari and can be published directly 
 - Separate outside unit section
 - Built-in Climate 3200i reference for clearances and unit dimensions
 - Customer call questions generated only from missing information
+- One-tap customer SMS/email draft for missing data requests
+- Fast workflow checklist for the triage process
 - Copy short Salesforce-ready handover notes
 - Upload/import photos
 - Photos are resized locally before storage to reduce iPad Safari memory pressure
