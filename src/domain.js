@@ -169,6 +169,51 @@ export function suggestUnitSize(size) {
   return "LARGE";
 }
 
+export function extractSalesforceLeadDetails(text) {
+  const source = clean(text);
+  if (!source) return {};
+
+  const lines = source
+    .split(/\r?\n/)
+    .map((line) => line.replace(/\s+/g, " ").trim())
+    .filter(Boolean);
+  const joined = lines.join("\n");
+  const titleLine = lines.find((line) => /CHI Lead[-:\s]/i.test(line) && /\d{6,}/.test(line)) || "";
+
+  const leadNumber = firstMatch(joined, [
+    /CHI Lead[-:\s]*(\d{6,})/i,
+    /Lead Number\s*(\d{6,})/i,
+    /\bLead\s*#?\s*(\d{6,})/i,
+  ]);
+  const customerName = cleanName(firstMatch(joined, [
+    /\d{6,}\s*-\s*([A-Z][^-]+?)\s*-\s*[A-Z]{1,2}\d[A-Z\d]?\s*\d[A-Z]{2}/i,
+    /Customer Name\s+(.+)/i,
+    /Contact Name\s+(.+)/i,
+    /Name\s+((?:Mr|Mrs|Miss|Ms|Dr)\.?\s+.+)/i,
+  ]));
+  const customerEmail = firstMatch(joined, [
+    /([A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,})/i,
+  ]);
+  const contactNumber = normalisePhone(firstMatch(joined, [
+    /(?:Mobile Phone|Phone|Contact Number|Customer Phone)\s+(\+?44\s?\d[\d\s]{8,}|0\d[\d\s]{8,})/i,
+    /(\+?44\s?7\d[\d\s]{7,}|07\d[\d\s]{8,})/,
+    /(\+?44\s?[123]\d[\d\s]{8,}|0[123]\d[\d\s]{8,})/,
+  ]));
+  const postcode = firstMatch(titleLine || joined, [
+    /\b([A-Z]{1,2}\d[A-Z\d]?\s*\d[A-Z]{2})\b/i,
+  ]).toUpperCase();
+  const address = extractAddress(lines, postcode);
+
+  return removeEmpty({
+    leadNumber,
+    customerName,
+    address,
+    contactNumber,
+    customerEmail,
+    postcode,
+  });
+}
+
 export function generateMissingQuestions(caseData) {
   const questions = [];
   const outsideUnit = caseData.outsideUnit ?? createEmptyOutsideUnit();
@@ -326,18 +371,20 @@ export function generateAiReviewPack(caseData, options = {}) {
   const includeImages = Boolean(options.includeImages);
   const rooms = caseData.rooms?.length ? caseData.rooms : [createEmptyRoom()];
   const checklist = caseData.checklist ?? {};
+  const extracted = extractSalesforceLeadDetails(caseData.sourceDetails);
   return {
     schema: "bg.ac_triage.review_pack.v1",
     lead: {
-      leadNumber: clean(caseData.leadNumber),
-      customerName: clean(caseData.customerName),
-      address: clean(caseData.address),
-      contactNumber: clean(caseData.contactNumber),
-      customerEmail: clean(caseData.customerEmail),
+      leadNumber: clean(caseData.leadNumber) || extracted.leadNumber || "",
+      customerName: clean(caseData.customerName) || extracted.customerName || "",
+      address: clean(caseData.address) || extracted.address || "",
+      contactNumber: clean(caseData.contactNumber) || extracted.contactNumber || "",
+      customerEmail: clean(caseData.customerEmail) || extracted.customerEmail || "",
       propertyType: clean(caseData.propertyType),
       installDate: clean(caseData.installDate),
       planningDate: clean(caseData.planningDate),
       pastedJobDetails: clean(caseData.sourceDetails),
+      extractedFromSalesforceText: extracted,
       status: CASE_STATUSES.includes(caseData.status) ? caseData.status : "draft",
       nextAction: NEXT_ACTIONS.includes(caseData.nextAction) ? caseData.nextAction : "review_again",
     },
@@ -544,6 +591,54 @@ function hasPhotoType(caseData, type) {
 
 function clean(value) {
   return String(value ?? "").trim();
+}
+
+function firstMatch(text, patterns) {
+  for (const pattern of patterns) {
+    const match = text.match(pattern);
+    if (match?.[1]) return clean(match[1]);
+  }
+  return "";
+}
+
+function cleanName(value) {
+  return clean(value)
+    .replace(/^(Mr|Mrs|Miss|Ms|Dr)\.?\s+/i, "")
+    .replace(/\s+(Owner|Customer|Tenant|Contact)$/i, "")
+    .trim();
+}
+
+function normalisePhone(value) {
+  const phone = clean(value).replace(/[^\d+]/g, "");
+  if (!phone) return "";
+  if (phone.startsWith("+44")) return `0${phone.slice(3)}`;
+  if (phone.startsWith("44")) return `0${phone.slice(2)}`;
+  return phone;
+}
+
+function extractAddress(lines, postcode) {
+  const labelled = firstMatch(lines.join("\n"), [
+    /(?:Customer Address|Install Address|Site Address|Address)\s+(.+)/i,
+  ]);
+  if (labelled && !looksLikeNameOrEmail(labelled)) return labelled;
+
+  if (!postcode) return "";
+  const postcodeLine = lines.find((line) => line.toUpperCase().includes(postcode));
+  if (!postcodeLine) return postcode;
+
+  const cleaned = postcodeLine
+    .replace(/^Customer Address\s+/i, "")
+    .replace(/^Address\s+/i, "")
+    .trim();
+  return cleaned || postcode;
+}
+
+function looksLikeNameOrEmail(value) {
+  return /@/.test(value) || /^(Mr|Mrs|Miss|Ms|Dr)\.?\s+/i.test(value);
+}
+
+function removeEmpty(object) {
+  return Object.fromEntries(Object.entries(object).filter(([, value]) => clean(value)));
 }
 
 function firstName(name) {
