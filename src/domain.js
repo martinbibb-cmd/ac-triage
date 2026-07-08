@@ -7,6 +7,14 @@ export const JOB_STAGES = [
 ];
 
 export const TRUNKING_COLOURS = ["White", "Black", "Other"];
+export const PHOTO_TYPES = [
+  "indoor_location",
+  "outdoor_location",
+  "electric_meter",
+  "fuse_board",
+  "floorplan",
+  "other",
+];
 
 export const REFERENCE_DATA = {
   title: "Bosch Climate 3200i reference",
@@ -77,6 +85,7 @@ export function createEmptyCase() {
     address: "",
     contactNumber: "",
     customerEmail: "",
+    sourceDetails: "",
     propertyType: "",
     jobStage: JOB_STAGES[0],
     installDate: "",
@@ -278,6 +287,104 @@ export function generateReferenceText() {
   ].join("\n");
 }
 
+export function generateAiReviewPack(caseData) {
+  const rooms = caseData.rooms?.length ? caseData.rooms : [createEmptyRoom()];
+  const checklist = caseData.checklist ?? {};
+  return {
+    schema: "bg.ac_triage.review_pack.v1",
+    lead: {
+      leadNumber: clean(caseData.leadNumber),
+      customerName: clean(caseData.customerName),
+      address: clean(caseData.address),
+      contactNumber: clean(caseData.contactNumber),
+      customerEmail: clean(caseData.customerEmail),
+      propertyType: clean(caseData.propertyType),
+      installDate: clean(caseData.installDate),
+      planningDate: clean(caseData.planningDate),
+      pastedJobDetails: clean(caseData.sourceDetails),
+    },
+    rooms: rooms.map((room) => ({
+      roomName: clean(room.roomName),
+      roomSizeM2: clean(room.roomSize),
+      suggestedUnitSize: clean(room.suggestedUnitSize || suggestUnitSize(room.roomSize)),
+      internalLocation: clean(room.internalLocation),
+      pipeRun: clean(room.pipeRun),
+      trunkingColour: clean(room.trunkingColour),
+      plugLocation: clean(room.plugLocation),
+      electricalSupplyNotes: clean(room.electricalSupplyNotes),
+      wifiDongleRequired: typeof room.wifiDongleRequired === "boolean" ? room.wifiDongleRequired : null,
+    })),
+    outsideUnit: {
+      location: clean(caseData.outsideUnit?.location),
+      mounting: clean(caseData.outsideUnit?.mounting),
+      clearances: clean(caseData.outsideUnit?.clearances),
+      ladderAccess: clean(caseData.outsideUnit?.ladderAccess),
+      notes: clean(caseData.outsideUnit?.notes),
+    },
+    evidence: {
+      photosPresent: Boolean(checklist.customerPhotosPresent || caseData.photos?.length),
+      electricMeterPhotoPresent: Boolean(checklist.electricMeterPhoto || hasPhotoType(caseData, "electric_meter")),
+      fuseBoardPhotoPresent: Boolean(checklist.fuseBoardPhoto || hasPhotoType(caseData, "fuse_board")),
+      indoorLocationPhotosPresent: hasPhotoType(caseData, "indoor_location"),
+      outdoorLocationPhotosPresent: hasPhotoType(caseData, "outdoor_location"),
+      annotatedPhotosPrepared: Boolean(caseData.workflow?.photosPrepared || caseData.photos?.some((photo) => photo.annotatedDataUrl)),
+      rightmoveChecked: Boolean(caseData.workflow?.rightmoveChecked),
+      floorplanChecked: hasPhotoType(caseData, "floorplan"),
+    },
+    reviewChecks: {
+      visibleEarthChecked: Boolean(checklist.visibleEarthChecked),
+      spareFuseChecked: Boolean(checklist.spareFuseChecked),
+      clearancesChecked: Boolean(checklist.clearancesChecked),
+      ladderAccessChecked: Boolean(checklist.ladderAccessChecked),
+      quoteChecked: Boolean(checklist.quoteChecked),
+      pipeworkChecked: Boolean(checklist.pipeworkChecked),
+      planningOrInstallDateChecked: Boolean(checklist.installDateChecked || checklist.planningDateConfirmed || caseData.installDate || caseData.planningDate),
+    },
+    photoManifest: (caseData.photos ?? []).map((photo, index) => ({
+      id: photo.id || `photo-${index + 1}`,
+      fileName: clean(photo.name) || `photo-${index + 1}`,
+      label: clean(photo.label),
+      type: PHOTO_TYPES.includes(photo.type) ? photo.type : "other",
+      notes: clean(photo.notes),
+      requestedAnnotation: clean(photo.requestedAnnotation),
+      hasAppMarkup: Boolean(photo.marks?.length || photo.annotatedDataUrl),
+    })),
+    desiredOutput: {
+      decision: "ready | missing_info",
+      handoverNotes: true,
+      customerSmsOrEmail: true,
+      photoAnnotations: true,
+    },
+  };
+}
+
+export function generateAiReviewPackJson(caseData) {
+  return JSON.stringify(generateAiReviewPack(caseData), null, 2);
+}
+
+export function generateAiReviewPrompt() {
+  return [
+    "Act as an air-con triage reviewer.",
+    "",
+    "Review the JSON review pack and any uploaded photos.",
+    "",
+    "Return:",
+    "1. decision: ready or missing_info",
+    "2. missing blockers only",
+    "3. short customer questions only for customer-solvable missing information",
+    "4. internal BG/admin issues separately",
+    "5. Salesforce-ready handover notes if ready",
+    "6. photo annotation instructions if photos are supplied",
+    "",
+    "Rules:",
+    "- Do not invent missing information.",
+    "- Keep output short and factual.",
+    "- If not ready, prioritise blockers over general observations.",
+    "- Customer questions must be plain English and suitable for SMS/email.",
+    "- Photo annotation instructions should be structured as JSON with photoId, type, label, targetDescription, and colour.",
+  ].join("\n");
+}
+
 export function sampleCase() {
   const triageCase = createEmptyCase();
   triageCase.leadNumber = "BG-AC-1042";
@@ -312,6 +419,10 @@ export function sampleCase() {
     wifiDongleRequired: true,
   };
   return triageCase;
+}
+
+function hasPhotoType(caseData, type) {
+  return Boolean(caseData.photos?.some((photo) => photo.type === type));
 }
 
 function clean(value) {

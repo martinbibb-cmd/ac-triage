@@ -1,12 +1,16 @@
 # Air Con Triage
 
-A simple offline-first PWA for air con installation triage and handover notes.
+A simple browser app for building structured air con triage review packs.
 
-It is designed for iPad/iPhone use through Safari and can be published directly with GitHub Pages. There is no login, cloud sync, or backend in v1. Cases and photos are stored locally in the browser using IndexedDB.
+It is designed for iPad/iPhone use through Safari and can be published directly with GitHub Pages. There is no login, cloud sync, Salesforce integration, or backend in v1. Cases and photos are stored locally in the browser using IndexedDB for convenience, but offline mode is not a product requirement.
 
 ## Features
 
 - Create local triage cases
+- Paste raw Salesforce/job details
+- Copy a clean JSON AI review pack
+- Copy an AI review prompt for GPT/Gemini
+- Upload photos separately into GPT/Gemini using the generated photo manifest
 - Capture lead/customer/address/contact details
 - Track the job stage with simple dropdowns
 - Guided install checklist

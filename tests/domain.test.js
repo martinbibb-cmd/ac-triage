@@ -2,6 +2,9 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
   createEmptyCase,
+  generateAiReviewPack,
+  generateAiReviewPackJson,
+  generateAiReviewPrompt,
   generateCustomerRequestMessage,
   generateHandoverNotes,
   generateMissingQuestions,
@@ -130,4 +133,46 @@ test("generateReferenceText includes Climate 3200i clearances and dimensions", (
   assert.match(reference, /Front \/ service space: 2000mm/);
   assert.match(reference, /2.6 kW: H 292mm, W 729mm, D 200mm, 8kg/);
   assert.match(reference, /7 kW: H 673mm, W 890mm, D 342mm, 43.9kg/);
+});
+
+test("generateAiReviewPack creates clean JSON without image data", () => {
+  const triageCase = createEmptyCase();
+  triageCase.leadNumber = "LEAD-456";
+  triageCase.sourceDetails = "Raw Salesforce notes";
+  triageCase.photos = [{
+    id: "photo-1",
+    name: "meter.jpg",
+    label: "Meter",
+    type: "electric_meter",
+    notes: "Close-up meter photo",
+    requestedAnnotation: "Label meter position",
+    dataUrl: "data:image/jpeg;base64,SHOULD_NOT_EXPORT",
+    marks: [],
+  }];
+
+  const pack = generateAiReviewPack(triageCase);
+  const json = generateAiReviewPackJson(triageCase);
+
+  assert.equal(pack.schema, "bg.ac_triage.review_pack.v1");
+  assert.equal(pack.lead.leadNumber, "LEAD-456");
+  assert.equal(pack.lead.pastedJobDetails, "Raw Salesforce notes");
+  assert.equal(pack.evidence.electricMeterPhotoPresent, true);
+  assert.deepEqual(pack.photoManifest[0], {
+    id: "photo-1",
+    fileName: "meter.jpg",
+    label: "Meter",
+    type: "electric_meter",
+    notes: "Close-up meter photo",
+    requestedAnnotation: "Label meter position",
+    hasAppMarkup: false,
+  });
+  assert.doesNotMatch(json, /SHOULD_NOT_EXPORT/);
+});
+
+test("generateAiReviewPrompt instructs model not to invent information", () => {
+  const prompt = generateAiReviewPrompt();
+
+  assert.match(prompt, /air-con triage reviewer/);
+  assert.match(prompt, /Do not invent missing information/);
+  assert.match(prompt, /photo annotation instructions/);
 });

@@ -1,12 +1,15 @@
 import {
   CHECKLIST,
   JOB_STAGES,
+  PHOTO_TYPES,
   REFERENCE_DATA,
   TRUNKING_COLOURS,
   WORKFLOW_STEPS,
   createEmptyCase,
   createEmptyRoom,
   generateCustomerRequestMessage,
+  generateAiReviewPackJson,
+  generateAiReviewPrompt,
   generateHandoverNotes,
   generateMissingQuestions,
   generateReferenceText,
@@ -52,8 +55,8 @@ function render() {
   app.innerHTML = `
     <header class="topbar">
       <div>
-        <p class="eyebrow">Offline PWA</p>
-        <h1>Air Con Triage</h1>
+        <p class="eyebrow">AI review pack builder</p>
+        <h1>Air Con Triage Pack Builder</h1>
       </div>
       <button class="primary" data-action="new-case">New Case</button>
     </header>
@@ -94,7 +97,9 @@ function emptyState() {
 function caseEditor(item) {
   return `
     <div class="toolbar">
-      <button class="primary" data-action="copy-notes">Copy handover notes</button>
+      <button class="primary" data-action="copy-ai-pack">Copy AI review pack</button>
+      <button data-action="copy-ai-prompt">Copy AI review prompt</button>
+      <button data-action="copy-notes">Copy handover notes</button>
       <button data-action="copy-form">Copy completed form</button>
       <button data-action="share-case">Share / export</button>
       <button class="danger" data-action="delete-case">Delete</button>
@@ -114,6 +119,7 @@ function caseEditor(item) {
         </label>
         <label>Install date<input data-field="installDate" value="${attr(item.installDate)}"></label>
         <label>Planning date<input data-field="planningDate" value="${attr(item.planningDate)}"></label>
+        <label class="span-two">Pasted job / Salesforce details<textarea data-field="sourceDetails" placeholder="Paste raw Salesforce/job notes here">${escapeHtml(item.sourceDetails)}</textarea></label>
       </section>
 
       <section class="panel">
@@ -129,6 +135,18 @@ function caseEditor(item) {
         <pre class="message-preview">${escapeHtml(generateCustomerRequestMessage(item))}</pre>
       </section>
     </div>
+
+    <section class="panel">
+      <div class="panel-head">
+        <h2>AI review pack</h2>
+        <div class="action-row">
+          <button class="primary" data-action="copy-ai-pack">Copy AI review pack</button>
+          <button data-action="copy-ai-prompt">Copy AI review prompt</button>
+        </div>
+      </div>
+      <p class="hint">Copy the JSON, upload the photos separately into GPT/Gemini, then paste the prompt. Image data is not embedded in the JSON.</p>
+      <pre class="notes-preview compact-preview">${escapeHtml(generateAiReviewPackJson(item))}</pre>
+    </section>
 
     <section class="panel">
       <h2>Fast workflow</h2>
@@ -323,6 +341,16 @@ function photoCard(photo) {
   return `
     <article class="photo-card">
       <img src="${attr(source)}" alt="${attr(photo.name)}" loading="lazy" decoding="async">
+      <div class="photo-meta">
+        <label>Label<input data-photo-field="label" data-photo="${photo.id}" value="${attr(photo.label || "")}"></label>
+        <label>Type
+          <select data-photo-field="type" data-photo="${photo.id}">
+            ${options(PHOTO_TYPES, photo.type || "other")}
+          </select>
+        </label>
+        <label>Notes<textarea data-photo-field="notes" data-photo="${photo.id}">${escapeHtml(photo.notes || "")}</textarea></label>
+        <label>Requested annotation<textarea data-photo-field="requestedAnnotation" data-photo="${photo.id}">${escapeHtml(photo.requestedAnnotation || "")}</textarea></label>
+      </div>
       <div class="photo-actions">
         <button data-action="edit-photo" data-photo="${photo.id}">Markup</button>
         <button data-action="save-gallery" data-photo="${photo.id}">Save to gallery</button>
@@ -391,6 +419,10 @@ function bindEvents() {
     field.addEventListener("input", updateOutsideUnitField);
     field.addEventListener("change", updateOutsideUnitField);
   });
+  app.querySelectorAll("[data-photo-field]").forEach((field) => {
+    field.addEventListener("input", updatePhotoField);
+    field.addEventListener("change", updatePhotoField);
+  });
 
   const labelInput = app.querySelector("[data-action='label-text']");
   if (labelInput) {
@@ -435,6 +467,12 @@ async function handleAction(event) {
   }
   if (action === "copy-notes" || action === "copy-form") {
     await copyText(generateHandoverNotes(active));
+  }
+  if (action === "copy-ai-pack") {
+    await copyText(generateAiReviewPackJson(active));
+  }
+  if (action === "copy-ai-prompt") {
+    await copyText(generateAiReviewPrompt());
   }
   if (action === "copy-questions") {
     await copyText(generateMissingQuestions(active).join("\n") || "No missing customer questions.");
@@ -527,6 +565,15 @@ async function updateOutsideUnitField(event) {
   renderSoft();
 }
 
+async function updatePhotoField(event) {
+  const active = selectedCase();
+  const photo = active.photos.find((entry) => entry.id === event.target.dataset.photo);
+  if (!photo) return;
+  photo[event.target.dataset.photoField] = event.target.value;
+  await persistActive(active, false);
+  renderSoft();
+}
+
 async function handlePhotoUpload(event) {
   const active = selectedCase();
   const files = [...event.target.files];
@@ -544,6 +591,10 @@ async function readPhotoFile(file) {
     return {
       id: crypto.randomUUID(),
       name: file.name,
+      label: file.name,
+      type: "other",
+      notes: "",
+      requestedAnnotation: "",
       dataUrl: resized.dataUrl,
       thumbDataUrl: thumb.dataUrl,
       annotatedDataUrl: "",
@@ -790,6 +841,8 @@ function renderSoft() {
   if (preview && active) preview.textContent = generateHandoverNotes(active);
   if (questions && active) questions.innerHTML = questionList(active);
   if (message && active) message.textContent = generateCustomerRequestMessage(active);
+  const aiPack = app.querySelector(".compact-preview");
+  if (aiPack && active) aiPack.textContent = generateAiReviewPackJson(active);
 }
 
 async function copyText(text) {
