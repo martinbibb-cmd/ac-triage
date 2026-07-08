@@ -10,9 +10,11 @@ It is designed for iPad/iPhone use through Safari and can be published directly 
 - The Salesforce source screen can include CHI Lead Details, Contact Information, Payment Information, Portal Details, System Information, Photos, Jobs, Quotes, Finance Applications, Activity History, and lead field history
 - Add Salesforce photos separately with the upload button before creating the AI pack
 - Basic lead/contact fields are extracted from pasted Salesforce text where possible
+- Classic Salesforce label/value rows such as `CHI Lead Num` followed by the number are supported
 - Send the AI prompt plus JSON/photos to GPT/Gemini
 - Paste the AI JSON response back into the app
 - Send the customer message only after the AI response asks for one
+- Copy/SMS/email customer actions use the imported AI customer message when present
 - Customer messages are tailored to missing customer-solvable details, including specific indoor/outdoor/electrical photo requests
 - Add the customer text reply and upload any new photos separately, then create the next AI pack
 - Maintain a read-only timeline of Salesforce import, photo uploads, AI reviews, customer replies, and handover readiness

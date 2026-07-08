@@ -44,6 +44,33 @@ test("extractSalesforceLeadDetails pulls useful fields from Salesforce text", ()
   assert.equal(extracted.address, "SG1 3ND 2 Langthorne Avenue");
 });
 
+test("extractSalesforceLeadDetails handles Classic Salesforce label value rows", () => {
+  const text = `
+    CHI Lead Details
+    CHI Lead Num
+    50773906
+    Customer Name
+    Chris Beetham
+    Customer Address
+    10 Test Road
+    Test Town
+    SG1 3ND
+    Mobile Phone
+    07700 900123
+    Customer Email
+    chris@example.com
+  `;
+
+  const extracted = extractSalesforceLeadDetails(text);
+
+  assert.equal(extracted.leadNumber, "50773906");
+  assert.equal(extracted.customerName, "Chris Beetham");
+  assert.equal(extracted.address, "10 Test Road, Test Town, SG1 3ND");
+  assert.equal(extracted.contactNumber, "07700900123");
+  assert.equal(extracted.customerEmail, "chris@example.com");
+  assert.equal(extracted.postcode, "SG1 3ND");
+});
+
 test("generateMissingQuestions only asks for missing handover details", () => {
   const triageCase = createEmptyCase();
   triageCase.installDate = "2026-08-14";
@@ -288,6 +315,7 @@ test("generateAiReviewPrompt instructs model not to invent information", () => {
 
   assert.match(prompt, /air-con triage reviewer/);
   assert.match(prompt, /Do not invent missing information/);
+  assert.match(prompt, /This pasted JSON is the review pack/);
   assert.match(prompt, /bg\.ac_triage\.ai_result\.v1/);
   assert.match(prompt, /normalised photo coordinates from 0 to 1/);
   assert.match(prompt, /photoAnnotations/);

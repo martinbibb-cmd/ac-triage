@@ -182,19 +182,20 @@ export function extractSalesforceLeadDetails(text) {
 
   const leadNumber = firstMatch(joined, [
     /CHI Lead[-:\s]*(\d{6,})/i,
+    /CHI Lead Num\s+(\d{6,})/i,
     /Lead Number\s*(\d{6,})/i,
     /\bLead\s*#?\s*(\d{6,})/i,
-  ]);
+  ]) || valueAfterLabel(lines, ["CHI Lead Num", "CHI Lead Number", "Lead Number"]);
   const customerName = cleanName(firstMatch(joined, [
     /\d{6,}\s*-\s*([A-Z][^-]+?)\s*-\s*[A-Z]{1,2}\d[A-Z\d]?\s*\d[A-Z]{2}/i,
     /Customer Name\s+(.+)/i,
     /Contact Name\s+(.+)/i,
     /Name\s+((?:Mr|Mrs|Miss|Ms|Dr)\.?\s+.+)/i,
-  ]));
-  const customerEmail = firstMatch(joined, [
+  ]) || valueAfterLabel(lines, ["Customer Name", "Contact Name", "Name"]));
+  const customerEmail = valueAfterLabel(lines, ["Customer Email", "Email"]) || firstMatch(joined, [
     /([A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,})/i,
   ]);
-  const contactNumber = normalisePhone(firstMatch(joined, [
+  const contactNumber = normalisePhone(valueAfterLabel(lines, ["Mobile Phone", "Phone", "Contact Number", "Customer Phone"]) || firstMatch(joined, [
     /(?:Mobile Phone|Phone|Contact Number|Customer Phone)\s+(\+?44\s?\d[\d\s]{8,}|0\d[\d\s]{8,})/i,
     /(\+?44\s?7\d[\d\s]{7,}|07\d[\d\s]{8,})/,
     /(\+?44\s?[123]\d[\d\s]{8,}|0[123]\d[\d\s]{8,})/,
@@ -544,6 +545,7 @@ export function generateAiReviewPrompt() {
     "Act as an air-con triage reviewer for a JSON round-trip workflow.",
     "",
     "Review the JSON review pack and any separately uploaded photos. Return JSON only. Do not return prose outside JSON.",
+    "This pasted JSON is the review pack. Do not ask for the JSON review pack again.",
     "The pastedJobDetails field may be copied from a Classic Salesforce CHI Lead page. Useful sections include CHI Lead Details, Contact Information, Payment Information, Portal Details, Source Information, System Information, Photos, Appointments, Notes & Attachments, Jobs, BigMachines Quotes, Finance Applications, Activity History, and CHI Lead Field History.",
     "Extract factual values from those sections where present, especially lead number, customer name, address, phone/email, lead status, job status, portal/photo status, quote/package rows, appointment/install dates, notes/activity, and field-history status changes.",
     "Use the timeline array to understand previous AI reviews, customer replies, uploaded photos, and whether the case is waiting, ready, or complete.",
@@ -691,7 +693,26 @@ function normalisePhone(value) {
   return phone;
 }
 
+function valueAfterLabel(lines, labels) {
+  for (let index = 0; index < lines.length; index += 1) {
+    const line = lines[index];
+    for (const label of labels) {
+      const pattern = new RegExp(`^${escapeRegExp(label)}(?:\\s*[:#-])?\\s*(.*)$`, "i");
+      const match = line.match(pattern);
+      if (!match) continue;
+      const inline = clean(match[1]);
+      if (inline && !looksLikeFieldLabel(inline)) return inline;
+      const next = clean(lines[index + 1]);
+      if (next && !looksLikeFieldLabel(next)) return next;
+    }
+  }
+  return "";
+}
+
 function extractAddress(lines, postcode) {
+  const block = addressBlockAfterLabel(lines, ["Customer Address", "Install Address", "Site Address", "Address"]);
+  if (block) return block;
+
   const labelled = firstMatch(lines.join("\n"), [
     /(?:Customer Address|Install Address|Site Address|Address)\s+(.+)/i,
   ]);
@@ -708,8 +729,37 @@ function extractAddress(lines, postcode) {
   return cleaned || postcode;
 }
 
+function addressBlockAfterLabel(lines, labels) {
+  for (let index = 0; index < lines.length; index += 1) {
+    for (const label of labels) {
+      const pattern = new RegExp(`^${escapeRegExp(label)}(?:\\s*[:#-])?\\s*(.*)$`, "i");
+      const match = lines[index].match(pattern);
+      if (!match) continue;
+      const parts = [];
+      const inline = clean(match[1]);
+      if (inline && !looksLikeFieldLabel(inline)) parts.push(inline);
+      for (let nextIndex = index + 1; nextIndex < Math.min(lines.length, index + 5); nextIndex += 1) {
+        const next = clean(lines[nextIndex]);
+        if (!next || looksLikeFieldLabel(next)) break;
+        parts.push(next);
+      }
+      const value = parts.join(", ");
+      if (value && !looksLikeNameOrEmail(value)) return value;
+    }
+  }
+  return "";
+}
+
 function looksLikeNameOrEmail(value) {
   return /@/.test(value) || /^(Mr|Mrs|Miss|Ms|Dr)\.?\s+/i.test(value);
+}
+
+function looksLikeFieldLabel(value) {
+  return /^(CHI Lead Num|Customer Name|Contact Name|Customer Address|Install Address|Site Address|Mobile Phone|Phone|Customer Email|Email|Status|Stage|Owner|Created|Updated|Lead Source)\b/i.test(value);
+}
+
+function escapeRegExp(value) {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
 function removeEmpty(object) {
