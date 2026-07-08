@@ -250,6 +250,44 @@ button.active {
   margin-top: 4px;
 }
 
+.timeline-list {
+  display: grid;
+  gap: 10px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.timeline-list li {
+  display: grid;
+  gap: 4px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #f8fafb;
+  padding: 12px;
+}
+
+.timeline-list small {
+  color: var(--muted);
+  font-weight: 750;
+}
+
+.timeline-list p {
+  margin: 0;
+  color: #33424f;
+  overflow-wrap: anywhere;
+}
+
+.timeline-pill {
+  width: fit-content;
+  border-radius: 999px;
+  background: #e7f4ef;
+  color: var(--brand-2);
+  padding: 4px 8px;
+  font-size: 0.85rem;
+  font-weight: 850;
+}
+
 .primary-actions {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
