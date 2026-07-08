@@ -197,6 +197,32 @@ button.active {
   margin-bottom: 0;
 }
 
+.workflow-step {
+  display: grid;
+  gap: 12px;
+  border-top: 1px solid var(--line);
+  padding-top: 16px;
+}
+
+.workflow-step:first-of-type {
+  border-top: 0;
+  padding-top: 0;
+}
+
+.workflow-step h3 {
+  margin: 0;
+  color: var(--brand);
+}
+
+.compact-head {
+  align-items: end;
+  margin-bottom: 0;
+}
+
+.embedded-action {
+  margin-top: 4px;
+}
+
 .primary-actions {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
