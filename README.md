@@ -9,6 +9,9 @@ It is designed for iPad/iPhone use through Safari and can be published directly 
 - Create local triage cases
 - Paste raw Salesforce/job details
 - Copy a clean JSON AI review pack
+- Copy full JSON with embedded compressed images
+- Download review pack ZIP with `review-pack.json` and photo files
+- Paste AI JSON result back into the lead
 - Copy an AI review prompt for GPT/Gemini
 - Preserve multiple AI review rounds per lead
 - Preserve customer replies and newly supplied photo references

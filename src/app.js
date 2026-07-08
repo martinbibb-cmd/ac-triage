@@ -103,7 +103,9 @@ function caseEditor(item) {
   return `
     <div class="toolbar">
       <button class="primary" data-action="copy-ai-pack">Copy AI review pack</button>
+      <button data-action="copy-full-ai-pack">Copy full JSON with images</button>
       <button data-action="copy-ai-prompt">Copy AI review prompt</button>
+      <button data-action="download-review-pack">Download review pack</button>
       <button data-action="copy-notes">Copy handover notes</button>
       <button data-action="copy-form">Copy completed form</button>
       <button data-action="share-case">Share / export</button>
@@ -161,11 +163,15 @@ function caseEditor(item) {
         <h2>AI review pack</h2>
         <div class="action-row">
           <button class="primary" data-action="copy-ai-pack">Copy AI review pack</button>
+          <button data-action="copy-full-ai-pack">Copy full JSON with images</button>
           <button data-action="copy-ai-prompt">Copy AI review prompt</button>
+          <button data-action="download-review-pack">Download review pack</button>
         </div>
       </div>
-      <p class="hint">Copy the JSON, upload the photos separately into GPT/Gemini, then paste the prompt. Image data is not embedded in the JSON.</p>
+      <p class="hint">Compact JSON contains a photo manifest only. Full JSON embeds compressed images and can get large. ZIP contains review-pack.json plus photo files.</p>
       <pre class="notes-preview compact-preview">${escapeHtml(generateAiReviewPackJson(item))}</pre>
+      <label>Paste AI JSON result<textarea class="ai-result-input" placeholder='{"schema":"bg.ac_triage.ai_result.v1","decision":"missing_info",...}'></textarea></label>
+      <button data-action="import-ai-result">Import AI JSON result</button>
     </section>
 
     <section class="panel">
@@ -252,7 +258,7 @@ function caseEditor(item) {
 
     <section class="panel">
       <h2>Handover preview</h2>
-      <pre class="notes-preview">${escapeHtml(generateHandoverNotes(item))}</pre>
+      <pre class="notes-preview handover-preview">${escapeHtml(handoverText(item))}</pre>
     </section>
   `;
 }
@@ -555,13 +561,24 @@ async function handleAction(event) {
     await persistActive(active);
   }
   if (action === "copy-notes" || action === "copy-form") {
-    await copyText(generateHandoverNotes(active));
+    await copyText(handoverText(active));
   }
   if (action === "copy-ai-pack") {
     await copyText(generateAiReviewPackJson(active));
   }
+  if (action === "copy-full-ai-pack") {
+    const json = generateAiReviewPackJson(active, { includeImages: true });
+    await copyText(json);
+    toast(json.length > 900000 ? "Copied large full JSON" : "Copied full JSON");
+  }
   if (action === "copy-ai-prompt") {
     await copyText(generateAiReviewPrompt());
+  }
+  if (action === "download-review-pack") {
+    await downloadReviewPack(active);
+  }
+  if (action === "import-ai-result") {
+    await importAiResult(active);
   }
   if (action === "copy-questions") {
     await copyText(generateMissingQuestions(active).join("\n") || "No missing customer questions.");
@@ -945,11 +962,11 @@ function drawCanvasToDataUrl(sourceCanvas, maxEdge) {
 }
 
 function renderSoft() {
-  const preview = app.querySelector(".notes-preview");
+  const preview = app.querySelector(".handover-preview");
   const questions = app.querySelector(".questions");
   const message = app.querySelector(".message-preview");
   const active = selectedCase();
-  if (preview && active) preview.textContent = generateHandoverNotes(active);
+  if (preview && active) preview.textContent = handoverText(active);
   if (questions && active) questions.innerHTML = questionList(active);
   if (message && active) message.textContent = generateCustomerRequestMessage(active);
   const aiPack = app.querySelector(".compact-preview");
@@ -964,12 +981,96 @@ async function copyText(text) {
 }
 
 async function shareCase(active) {
-  const text = generateHandoverNotes(active);
+  const text = handoverText(active);
   if (navigator.share) {
     await navigator.share({ title: `AC triage ${active.leadNumber || active.customerName}`, text });
   } else {
     await copyText(text);
   }
+}
+
+async function importAiResult(active) {
+  const input = app.querySelector(".ai-result-input");
+  const raw = input?.value?.trim();
+  if (!raw) {
+    toast("Paste AI JSON first");
+    return;
+  }
+
+  let result;
+  try {
+    result = JSON.parse(raw);
+  } catch {
+    toast("Invalid JSON");
+    return;
+  }
+
+  active.reviewRounds ||= [];
+  const decision = ["ready", "missing_info"].includes(result.decision) ? result.decision : "";
+  const customerMessage = result.customerMessage || result.customerSmsOrEmail || "";
+  const blockers = [
+    ...(Array.isArray(result.missingBlockers) ? result.missingBlockers : []),
+    ...(Array.isArray(result.blockers) ? result.blockers : []),
+  ].map((item) => typeof item === "string" ? item : item.label || item.description || JSON.stringify(item));
+
+  active.reviewRounds.push({
+    id: crypto.randomUUID(),
+    round: active.reviewRounds.length + 1,
+    sentAt: new Date().toISOString(),
+    inputSummary: "Imported AI JSON result",
+    aiDecision: decision,
+    aiOutput: JSON.stringify(result, null, 2),
+    customerMessage,
+    outstandingBlockers: blockers.join("\n"),
+  });
+
+  if (result.handoverNotes) {
+    active.notes = String(result.handoverNotes);
+  }
+
+  if (result.status && ["draft", "ai_review_needed", "awaiting_customer", "ready", "complete"].includes(result.status)) {
+    active.status = result.status;
+  } else if (decision === "ready") {
+    active.status = "ready";
+  } else if (decision === "missing_info") {
+    active.status = "awaiting_customer";
+  }
+
+  if (decision === "ready") {
+    active.nextAction = "copy_handover_to_salesforce";
+  } else if (customerMessage || blockers.length) {
+    active.nextAction = "send_customer_message";
+  } else {
+    active.nextAction = "review_again";
+  }
+
+  await persistActive(active);
+  toast("AI result imported");
+}
+
+async function downloadReviewPack(active) {
+  const files = [{
+    name: "review-pack.json",
+    bytes: new TextEncoder().encode(generateAiReviewPackJson(active)),
+  }];
+
+  for (const [index, photo] of (active.photos ?? []).entries()) {
+    const dataUrl = photo.annotatedDataUrl || photo.dataUrl;
+    if (!dataUrl) continue;
+    const fileName = `${String(index + 1).padStart(2, "0")}-${safeFileName(photo.label || photo.name || `photo-${index + 1}`)}.jpg`;
+    const blob = await dataUrlToBlob(dataUrl);
+    files.push({
+      name: `photos/${fileName}`,
+      bytes: new Uint8Array(await blob.arrayBuffer()),
+    });
+  }
+
+  const zipBlob = createZipBlob(files);
+  downloadBlob(zipBlob, `${safeFileName(active.leadNumber || active.customerName || "review-pack")}.zip`);
+}
+
+function handoverText(active) {
+  return String(active.notes || "").trim() || generateHandoverNotes(active);
 }
 
 function sendCustomerSms(active) {
@@ -1002,9 +1103,13 @@ async function saveImageFile(dataUrl, fileName) {
 }
 
 async function dataUrlToFile(dataUrl, fileName) {
-  const response = await fetch(dataUrl);
-  const blob = await response.blob();
+  const blob = await dataUrlToBlob(dataUrl);
   return new File([blob], fileName, { type: blob.type || "image/png" });
+}
+
+async function dataUrlToBlob(dataUrl) {
+  const response = await fetch(dataUrl);
+  return response.blob();
 }
 
 function downloadDataUrl(dataUrl, fileName) {
@@ -1013,6 +1118,91 @@ function downloadDataUrl(dataUrl, fileName) {
   link.download = fileName;
   link.click();
 }
+
+function downloadBlob(blob, fileName) {
+  const link = document.createElement("a");
+  link.href = URL.createObjectURL(blob);
+  link.download = fileName;
+  link.click();
+  setTimeout(() => URL.revokeObjectURL(link.href), 1000);
+}
+
+function createZipBlob(files) {
+  const encoder = new TextEncoder();
+  const localParts = [];
+  const centralParts = [];
+  let offset = 0;
+
+  for (const file of files) {
+    const nameBytes = encoder.encode(file.name);
+    const data = file.bytes;
+    const crc = crc32(data);
+    const localHeader = zipLocalHeader(nameBytes, data.length, crc);
+    localParts.push(localHeader, data);
+    centralParts.push(zipCentralHeader(nameBytes, data.length, crc, offset));
+    offset += localHeader.length + data.length;
+  }
+
+  const centralSize = centralParts.reduce((sum, part) => sum + part.length, 0);
+  const end = zipEndRecord(files.length, centralSize, offset);
+  return new Blob([...localParts, ...centralParts, end], { type: "application/zip" });
+}
+
+function zipLocalHeader(nameBytes, size, crc) {
+  const header = new Uint8Array(30 + nameBytes.length);
+  const view = new DataView(header.buffer);
+  view.setUint32(0, 0x04034b50, true);
+  view.setUint16(4, 20, true);
+  view.setUint16(8, 0, true);
+  view.setUint32(14, crc, true);
+  view.setUint32(18, size, true);
+  view.setUint32(22, size, true);
+  view.setUint16(26, nameBytes.length, true);
+  header.set(nameBytes, 30);
+  return header;
+}
+
+function zipCentralHeader(nameBytes, size, crc, offset) {
+  const header = new Uint8Array(46 + nameBytes.length);
+  const view = new DataView(header.buffer);
+  view.setUint32(0, 0x02014b50, true);
+  view.setUint16(4, 20, true);
+  view.setUint16(6, 20, true);
+  view.setUint32(16, crc, true);
+  view.setUint32(20, size, true);
+  view.setUint32(24, size, true);
+  view.setUint16(28, nameBytes.length, true);
+  view.setUint32(42, offset, true);
+  header.set(nameBytes, 46);
+  return header;
+}
+
+function zipEndRecord(count, centralSize, centralOffset) {
+  const header = new Uint8Array(22);
+  const view = new DataView(header.buffer);
+  view.setUint32(0, 0x06054b50, true);
+  view.setUint16(8, count, true);
+  view.setUint16(10, count, true);
+  view.setUint32(12, centralSize, true);
+  view.setUint32(16, centralOffset, true);
+  return header;
+}
+
+function crc32(bytes) {
+  let crc = 0xffffffff;
+  for (const byte of bytes) {
+    crc = CRC_TABLE[(crc ^ byte) & 0xff] ^ (crc >>> 8);
+  }
+  return (crc ^ 0xffffffff) >>> 0;
+}
+
+const CRC_TABLE = Array.from({ length: 256 }, (_, index) => {
+  let crc = index;
+  for (let bit = 0; bit < 8; bit += 1) {
+    crc = crc & 1 ? 0xedb88320 ^ (crc >>> 1) : crc >>> 1;
+  }
+  return crc >>> 0;
+});
 
 function toast(message) {
   const element = document.createElement("div");

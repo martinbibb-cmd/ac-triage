@@ -322,7 +322,8 @@ export function generateReferenceText() {
   ].join("\n");
 }
 
-export function generateAiReviewPack(caseData) {
+export function generateAiReviewPack(caseData, options = {}) {
+  const includeImages = Boolean(options.includeImages);
   const rooms = caseData.rooms?.length ? caseData.rooms : [createEmptyRoom()];
   const checklist = caseData.checklist ?? {};
   return {
@@ -385,6 +386,10 @@ export function generateAiReviewPack(caseData) {
       notes: clean(photo.notes),
       requestedAnnotation: clean(photo.requestedAnnotation),
       hasAppMarkup: Boolean(photo.marks?.length || photo.annotatedDataUrl),
+      ...(includeImages ? {
+        mimeType: "image/jpeg",
+        dataUrl: photo.annotatedDataUrl || photo.dataUrl || "",
+      } : {}),
     })),
     reviewHistory: (caseData.reviewRounds ?? []).map((round, index) => ({
       round: Number(round.round) || index + 1,
@@ -410,8 +415,8 @@ export function generateAiReviewPack(caseData) {
   };
 }
 
-export function generateAiReviewPackJson(caseData) {
-  return JSON.stringify(generateAiReviewPack(caseData), null, 2);
+export function generateAiReviewPackJson(caseData, options = {}) {
+  return JSON.stringify(generateAiReviewPack(caseData, options), null, 2);
 }
 
 export function generateAiReviewPrompt() {

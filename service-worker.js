@@ -1,4 +1,4 @@
-const CACHE_NAME = "air-con-triage-v7";
+const CACHE_NAME = "air-con-triage-v8";
 const APP_SHELL = [
   "./",
   "./index.html",
