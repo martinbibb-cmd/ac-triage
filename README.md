@@ -6,13 +6,13 @@ It is designed for iPad/iPhone use through Safari and can be published directly 
 
 ## Features
 
-- Paste raw Salesforce/job/customer details first
+- Paste raw Salesforce/job/customer text first
 - The Salesforce source screen can include CHI Lead Details, Contact Information, Payment Information, Portal Details, System Information, Photos, Jobs, Quotes, Finance Applications, Activity History, and lead field history
-- Add Salesforce photos before creating the AI pack
+- Add Salesforce photos separately with the upload button before creating the AI pack
 - Send the AI prompt plus JSON/photos to GPT/Gemini
 - Paste the AI JSON response back into the app
 - Send the customer message only after the AI response asks for one
-- Add the customer reply and any new photos, then create the next AI pack
+- Add the customer text reply and upload any new photos separately, then create the next AI pack
 - Copy a clean compact JSON AI review pack
 - Copy full JSON with embedded compressed images when needed
 - Download review pack ZIP with `review-pack.json` and photo files

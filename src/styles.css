@@ -227,6 +227,20 @@ button.active {
   color: var(--brand);
 }
 
+.upload-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(220px, 320px);
+  gap: 12px;
+  align-items: end;
+}
+
+.upload-button {
+  justify-content: center;
+  border-color: var(--brand);
+  background: var(--brand);
+  color: #ffffff;
+}
+
 .compact-head {
   align-items: end;
   margin-bottom: 0;
@@ -601,6 +615,7 @@ tbody th {
   .layout,
   .grid.two,
   .grid.three,
+  .upload-row,
   .reference-grid {
     grid-template-columns: 1fr;
   }
