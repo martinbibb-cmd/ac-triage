@@ -93,7 +93,7 @@ function emptyState() {
   return `
     <div class="empty">
       <h2>Start a triage case</h2>
-      <p>Create a case, paste the job details, add photos, then export the AI review pack.</p>
+      <p>Create a case, paste Salesforce text, upload photos separately, then export the AI review pack.</p>
       <button class="primary" data-action="new-case">New Case</button>
     </div>
   `;
@@ -130,20 +130,24 @@ function roundTripPanel(item) {
       </div>
 
       <div class="workflow-step">
-        <h3>1. Paste Salesforce details and add photos</h3>
+        <h3>1. Paste Salesforce text</h3>
         <div class="source-guide">
           <strong>Useful Salesforce sections:</strong>
           CHI Lead Details, Contact Information, Payment Information, Portal Details, Source Information,
           System Information, Photos, Appointments, Notes & Attachments, Jobs, BigMachines Quotes,
           Finance Applications, Activity History, and CHI Lead Field History.
         </div>
-        <label>Salesforce / job details
-          <textarea class="large-input" data-field="sourceDetails" placeholder="Paste copied text from the Salesforce lead page. Include the lead details, contact/address, portal/photo status, job status, quote rows, notes/activity, and field history when available.">${escapeHtml(item.sourceDetails || "")}</textarea>
+        <label>Salesforce text only
+          <textarea class="large-input" data-field="sourceDetails" placeholder="Paste copied text from the Salesforce lead page. Do not paste photos here. Include lead details, contact/address, portal/photo status, job status, quote rows, notes/activity, and field history when available.">${escapeHtml(item.sourceDetails || "")}</textarea>
         </label>
-        <div class="panel-head compact-head">
-          <p class="hint">Add screenshots or customer photos from Salesforce before creating the AI pack. Photos are compressed locally to reduce iPad memory pressure.</p>
-          <label class="file-button">
-            Upload photos
+      </div>
+
+      <div class="workflow-step">
+        <h3>2. Upload photos separately</h3>
+        <div class="upload-row">
+          <p class="hint">On iPad, photos must be added with this button. Use it for Salesforce screenshots, customer photos, floorplans, and replies with new images.</p>
+          <label class="file-button upload-button">
+            Upload photos / screenshots
             <input type="file" accept="image/*" multiple data-action="add-photos">
           </label>
         </div>
@@ -154,7 +158,7 @@ function roundTripPanel(item) {
       </div>
 
       <div class="workflow-step">
-        <h3>2. Send pack to AI</h3>
+        <h3>3. Send pack to AI</h3>
         <div class="primary-actions">
           <button class="primary" data-action="copy-ai-prompt">Copy AI review prompt</button>
           <button class="primary" data-action="copy-ai-pack">Copy compact JSON</button>
@@ -165,7 +169,7 @@ function roundTripPanel(item) {
       </div>
 
       <div class="workflow-step">
-        <h3>3. Paste AI JSON response</h3>
+        <h3>4. Paste AI JSON response</h3>
         <label>AI JSON result
           <textarea class="ai-result-input large-input" placeholder='{"schema":"bg.ac_triage.ai_result.v1","decision":"missing_info","nextAction":"send_customer_message",...}'></textarea>
         </label>
@@ -187,7 +191,7 @@ function roundTripPanel(item) {
       </div>
 
       <div class="workflow-step">
-        <h3>4. Send customer message if AI asks for one</h3>
+        <h3>5. Send customer message if AI asks for one</h3>
         <pre class="message-preview">${escapeHtml(latestCustomerMessage(item) || generateCustomerRequestMessage(item))}</pre>
         <div class="primary-actions">
           <button class="primary" data-action="copy-request">Copy customer message</button>
@@ -197,9 +201,9 @@ function roundTripPanel(item) {
       </div>
 
       <div class="workflow-step">
-        <h3>5. Add customer reply, then review again</h3>
+        <h3>6. Add customer reply, then review again</h3>
         <label>Customer reply for next AI round
-          <textarea class="quick-reply-input" placeholder="Paste the customer's reply here, then add any new photos above before creating the next AI pack."></textarea>
+          <textarea class="quick-reply-input" placeholder="Paste the customer's text reply here. Add any new photos with the Upload photos button before creating the next AI pack."></textarea>
         </label>
         <button data-action="add-quick-customer-reply">Add reply to next JSON</button>
         <div>

@@ -423,7 +423,7 @@ export function generateAiReviewPrompt() {
   return [
     "Act as an air-con triage reviewer for a JSON round-trip workflow.",
     "",
-    "Review the JSON review pack and any uploaded photos. Return JSON only. Do not return prose outside JSON.",
+    "Review the JSON review pack and any separately uploaded photos. Return JSON only. Do not return prose outside JSON.",
     "The pastedJobDetails field may be copied from a Classic Salesforce CHI Lead page. Useful sections include CHI Lead Details, Contact Information, Payment Information, Portal Details, Source Information, System Information, Photos, Appointments, Notes & Attachments, Jobs, BigMachines Quotes, Finance Applications, Activity History, and CHI Lead Field History.",
     "Extract factual values from those sections where present, especially lead number, customer name, address, phone/email, lead status, job status, portal/photo status, quote/package rows, appointment/install dates, notes/activity, and field-history status changes.",
     "",
