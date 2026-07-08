@@ -131,11 +131,17 @@ function roundTripPanel(item) {
 
       <div class="workflow-step">
         <h3>1. Paste Salesforce details and add photos</h3>
+        <div class="source-guide">
+          <strong>Useful Salesforce sections:</strong>
+          CHI Lead Details, Contact Information, Payment Information, Portal Details, Source Information,
+          System Information, Photos, Appointments, Notes & Attachments, Jobs, BigMachines Quotes,
+          Finance Applications, Activity History, and CHI Lead Field History.
+        </div>
         <label>Salesforce / job details
-          <textarea class="large-input" data-field="sourceDetails" placeholder="Paste the lead text, Salesforce notes, quote notes, existing customer messages, or anything the AI should review.">${escapeHtml(item.sourceDetails || "")}</textarea>
+          <textarea class="large-input" data-field="sourceDetails" placeholder="Paste copied text from the Salesforce lead page. Include the lead details, contact/address, portal/photo status, job status, quote rows, notes/activity, and field history when available.">${escapeHtml(item.sourceDetails || "")}</textarea>
         </label>
         <div class="panel-head compact-head">
-          <p class="hint">Add any photos from Salesforce before creating the AI pack. Photos are compressed locally to reduce iPad memory pressure.</p>
+          <p class="hint">Add screenshots or customer photos from Salesforce before creating the AI pack. Photos are compressed locally to reduce iPad memory pressure.</p>
           <label class="file-button">
             Upload photos
             <input type="file" accept="image/*" multiple data-action="add-photos">

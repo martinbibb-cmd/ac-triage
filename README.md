@@ -7,6 +7,7 @@ It is designed for iPad/iPhone use through Safari and can be published directly 
 ## Features
 
 - Paste raw Salesforce/job/customer details first
+- The Salesforce source screen can include CHI Lead Details, Contact Information, Payment Information, Portal Details, System Information, Photos, Jobs, Quotes, Finance Applications, Activity History, and lead field history
 - Add Salesforce photos before creating the AI pack
 - Send the AI prompt plus JSON/photos to GPT/Gemini
 - Paste the AI JSON response back into the app
