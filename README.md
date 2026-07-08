@@ -1,35 +1,29 @@
 # Air Con Triage
 
-A simple browser app for building structured air con triage review packs.
+A simple browser app for round-tripping air con triage packs through GPT/Gemini.
 
 It is designed for iPad/iPhone use through Safari and can be published directly with GitHub Pages. There is no login, cloud sync, Salesforce integration, or backend in v1. Cases and photos are stored locally in the browser using IndexedDB for convenience, but offline mode is not a product requirement.
 
 ## Features
 
-- Create local triage cases
-- Paste raw Salesforce/job details
-- Copy a clean JSON AI review pack
-- Copy full JSON with embedded compressed images
+- Paste raw Salesforce/job/customer details
+- Add triage photos
+- Copy a clean compact JSON AI review pack
+- Copy full JSON with embedded compressed images when needed
 - Download review pack ZIP with `review-pack.json` and photo files
-- Paste AI JSON result back into the lead
-- Copy an AI review prompt for GPT/Gemini
+- Copy a strict AI review prompt for GPT/Gemini
+- Paste AI JSON result back into the app
+- Populate extracted lead, room, outside unit, customer message, and handover fields from AI JSON
+- Apply structured AI photo annotations when the AI returns normalized coordinates
 - Preserve multiple AI review rounds per lead
 - Preserve customer replies and newly supplied photo references
 - Show the next action: send customer message, wait for reply, review again, or copy handover to Salesforce
-- Upload photos separately into GPT/Gemini using the generated photo manifest
-- Capture lead/customer/address/contact details
-- Track the job stage with simple dropdowns
-- Guided install checklist
-- Room/unit form with automatic SMALL / MED / LARGE unit suggestion
-- Separate outside unit section
-- Built-in Climate 3200i reference for clearances and unit dimensions
-- Customer call questions generated only from missing information
+- Add a customer reply and export the next JSON review pack
+- Keep manual lead/room/outside-unit fields available under advanced edits
 - One-tap customer SMS/email draft for missing data requests
-- Fast workflow checklist for the triage process
 - Copy short Salesforce-ready handover notes
-- Upload/import photos
 - Photos are resized locally before storage to reduce iPad Safari memory pressure
-- Mark up photos with:
+- Manual photo markup remains available for:
   - point-to-point pipe route lines
   - indoor unit boxes
   - outdoor unit boxes
@@ -37,7 +31,6 @@ It is designed for iPad/iPhone use through Safari and can be published directly 
   - text labels
 - Save annotated images
 - Share/export case text
-- Works offline after first load
 
 ## Run locally
 

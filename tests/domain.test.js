@@ -190,7 +190,9 @@ test("generateAiReviewPrompt instructs model not to invent information", () => {
 
   assert.match(prompt, /air-con triage reviewer/);
   assert.match(prompt, /Do not invent missing information/);
-  assert.match(prompt, /photo annotation instructions/);
+  assert.match(prompt, /bg\.ac_triage\.ai_result\.v1/);
+  assert.match(prompt, /normalised photo coordinates from 0 to 1/);
+  assert.match(prompt, /photoAnnotations/);
 });
 
 test("generateAiReviewPack includes previous AI decision and customer reply", () => {

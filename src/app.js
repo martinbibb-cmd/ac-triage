@@ -93,7 +93,7 @@ function emptyState() {
   return `
     <div class="empty">
       <h2>Start a triage case</h2>
-      <p>Create a case, fill the handover fields, annotate evidence, then copy Salesforce-ready notes.</p>
+      <p>Create a case, paste the job details, add photos, then export the AI review pack.</p>
       <button class="primary" data-action="new-case">New Case</button>
     </div>
   `;
@@ -101,17 +101,6 @@ function emptyState() {
 
 function caseEditor(item) {
   return `
-    <div class="toolbar">
-      <button class="primary" data-action="copy-ai-pack">Copy AI review pack</button>
-      <button data-action="copy-full-ai-pack">Copy full JSON with images</button>
-      <button data-action="copy-ai-prompt">Copy AI review prompt</button>
-      <button data-action="download-review-pack">Download review pack</button>
-      <button data-action="copy-notes">Copy handover notes</button>
-      <button data-action="copy-form">Copy completed form</button>
-      <button data-action="share-case">Share / export</button>
-      <button class="danger" data-action="delete-case">Delete</button>
-    </div>
-
     <section class="panel next-action-panel">
       <div>
         <p class="eyebrow">Next action</p>
@@ -127,9 +116,90 @@ function caseEditor(item) {
       </div>
     </section>
 
+    ${roundTripPanel(item)}
+
+    <section class="panel">
+      <div class="panel-head">
+        <h2>Photos in</h2>
+        <label class="file-button">
+          Upload photos
+          <input type="file" accept="image/*" multiple data-action="add-photos">
+        </label>
+      </div>
+      <p class="hint">Photos are compressed locally before storage. AI can return normalized annotation coordinates and the app will draw them onto saved copies.</p>
+      <div class="photo-grid">
+        ${item.photos.map(photoCard).join("") || `<p class="muted">No photos added yet.</p>`}
+      </div>
+      ${markupEditor(item)}
+    </section>
+
+    <details class="advanced-section">
+      <summary>Advanced fields and manual edits</summary>
+      <div class="advanced-body">
+        ${advancedEditor(item)}
+      </div>
+    </details>
+
+    <div class="toolbar">
+      <button data-action="copy-notes">Copy handover notes</button>
+      <button data-action="copy-form">Copy completed form</button>
+      <button data-action="share-case">Share / export</button>
+      <button class="danger" data-action="delete-case">Delete</button>
+    </div>
+  `;
+}
+
+function roundTripPanel(item) {
+  return `
+    <section class="panel round-trip-panel">
+      <div class="panel-head">
+        <div>
+          <p class="eyebrow">Round trip</p>
+          <h2>Salesforce -> JSON/photos -> AI -> JSON result</h2>
+        </div>
+      </div>
+      <label>Paste job / Salesforce / customer details
+        <textarea class="large-input" data-field="sourceDetails" placeholder="Paste the lead text, Salesforce notes, customer messages, quote notes, or anything the AI should review.">${escapeHtml(item.sourceDetails || "")}</textarea>
+      </label>
+      <div class="primary-actions">
+        <button class="primary" data-action="copy-ai-prompt">Copy AI review prompt</button>
+        <button class="primary" data-action="copy-ai-pack">Copy compact JSON</button>
+        <button data-action="copy-full-ai-pack">Copy full JSON with images</button>
+        <button data-action="download-review-pack">Download review pack ZIP</button>
+      </div>
+      <p class="hint">Best practical flow: copy the prompt, download the ZIP, then upload review-pack.json and photos to GPT/Gemini. Compact JSON lists photos only. Full JSON embeds compressed photos and can be large.</p>
+      <label>Paste AI JSON result
+        <textarea class="ai-result-input large-input" placeholder='{"schema":"bg.ac_triage.ai_result.v1","decision":"missing_info","nextAction":"send_customer_message",...}'></textarea>
+      </label>
+      <div class="primary-actions">
+        <button class="primary" data-action="import-ai-result">Import AI JSON result</button>
+        <button data-action="copy-request">Copy customer message</button>
+        <button data-action="sms-customer">Text customer</button>
+        <button data-action="email-customer">Email customer</button>
+      </div>
+      <label>Add customer reply for next AI round
+        <textarea class="quick-reply-input" placeholder="Paste the customer's reply here, then add any new photos above."></textarea>
+      </label>
+      <button data-action="add-quick-customer-reply">Add reply to next JSON</button>
+      <div class="grid two">
+        <div>
+          <h3>Customer message</h3>
+          <pre class="message-preview">${escapeHtml(latestCustomerMessage(item) || generateCustomerRequestMessage(item))}</pre>
+        </div>
+        <div>
+          <h3>Current JSON preview</h3>
+          <pre class="notes-preview compact-preview">${escapeHtml(generateAiReviewPackJson(item))}</pre>
+        </div>
+      </div>
+    </section>
+  `;
+}
+
+function advancedEditor(item) {
+  return `
     <div class="grid two">
       <section class="panel">
-        <h2>Case details</h2>
+        <h2>Extracted case details</h2>
         <label>Lead number<input data-field="leadNumber" value="${attr(item.leadNumber)}"></label>
         <label>Customer name<input data-field="customerName" value="${attr(item.customerName)}"></label>
         <label>Address<textarea data-field="address">${escapeHtml(item.address)}</textarea></label>
@@ -141,7 +211,6 @@ function caseEditor(item) {
         </label>
         <label>Install date<input data-field="installDate" value="${attr(item.installDate)}"></label>
         <label>Planning date<input data-field="planningDate" value="${attr(item.planningDate)}"></label>
-        <label class="span-two">Pasted job / Salesforce details<textarea data-field="sourceDetails" placeholder="Paste raw Salesforce/job notes here">${escapeHtml(item.sourceDetails)}</textarea></label>
       </section>
 
       <section class="panel">
@@ -154,29 +223,13 @@ function caseEditor(item) {
           <button data-action="email-customer">Email customer</button>
           <button data-action="copy-request">Copy request</button>
         </div>
-        <pre class="message-preview">${escapeHtml(generateCustomerRequestMessage(item))}</pre>
+        <pre class="message-preview">${escapeHtml(latestCustomerMessage(item) || generateCustomerRequestMessage(item))}</pre>
       </section>
     </div>
 
     <section class="panel">
       <div class="panel-head">
-        <h2>AI review pack</h2>
-        <div class="action-row">
-          <button class="primary" data-action="copy-ai-pack">Copy AI review pack</button>
-          <button data-action="copy-full-ai-pack">Copy full JSON with images</button>
-          <button data-action="copy-ai-prompt">Copy AI review prompt</button>
-          <button data-action="download-review-pack">Download review pack</button>
-        </div>
-      </div>
-      <p class="hint">Compact JSON contains a photo manifest only. Full JSON embeds compressed images and can get large. ZIP contains review-pack.json plus photo files.</p>
-      <pre class="notes-preview compact-preview">${escapeHtml(generateAiReviewPackJson(item))}</pre>
-      <label>Paste AI JSON result<textarea class="ai-result-input" placeholder='{"schema":"bg.ac_triage.ai_result.v1","decision":"missing_info",...}'></textarea></label>
-      <button data-action="import-ai-result">Import AI JSON result</button>
-    </section>
-
-    <section class="panel">
-      <div class="panel-head">
-        <h2>Review rounds</h2>
+        <h2>AI review history</h2>
         <button data-action="add-review-round">Add review round</button>
       </div>
       <div class="stack">
@@ -239,21 +292,6 @@ function caseEditor(item) {
         <button data-action="copy-reference">Copy reference</button>
       </div>
       ${referencePanel()}
-    </section>
-
-    <section class="panel">
-      <div class="panel-head">
-        <h2>Photos and markup</h2>
-        <label class="file-button">
-          Upload photos
-          <input type="file" accept="image/*" multiple data-action="add-photos">
-        </label>
-      </div>
-      <p class="hint">Tap points to draw pipe route lines. Use boxes for indoor units, outdoor units, or room outlines. Annotated images can be downloaded to Photos.</p>
-      <div class="photo-grid">
-        ${item.photos.map(photoCard).join("") || `<p class="muted">No photos added yet.</p>`}
-      </div>
-      ${markupEditor(item)}
     </section>
 
     <section class="panel">
@@ -470,6 +508,15 @@ function questionList(item) {
   return `<ol>${questions.map((question) => `<li>${escapeHtml(question)}</li>`).join("")}</ol>`;
 }
 
+function latestCustomerMessage(item) {
+  const rounds = item.reviewRounds ?? [];
+  for (let index = rounds.length - 1; index >= 0; index -= 1) {
+    const message = String(rounds[index].customerMessage || "").trim();
+    if (message) return message;
+  }
+  return "";
+}
+
 function bindEvents() {
   app.querySelectorAll("[data-action]").forEach((element) => {
     element.addEventListener("click", handleAction);
@@ -558,6 +605,24 @@ async function handleAction(event) {
   if (action === "add-customer-reply") {
     active.customerReplies ||= [];
     active.customerReplies.push(createEmptyCustomerReply());
+    await persistActive(active);
+  }
+  if (action === "add-quick-customer-reply") {
+    const input = app.querySelector(".quick-reply-input");
+    const text = input?.value?.trim();
+    if (!text) {
+      toast("Paste customer reply first");
+      return;
+    }
+    active.customerReplies ||= [];
+    active.customerReplies.push({
+      ...createEmptyCustomerReply(),
+      receivedAt: new Date().toISOString(),
+      text,
+      notes: "Added from round-trip box",
+    });
+    active.status = "ai_review_needed";
+    active.nextAction = "review_again";
     await persistActive(active);
   }
   if (action === "copy-notes" || action === "copy-form") {
@@ -787,21 +852,22 @@ function drawMarks(context, marks) {
 
   for (const mark of marks ?? []) {
     if (mark.type === "line") {
-      context.strokeStyle = "#ffcf33";
+      context.strokeStyle = mark.colour || "#ffcf33";
       context.beginPath();
       context.moveTo(mark.start.x, mark.start.y);
       context.lineTo(mark.end.x, mark.end.y);
       context.stroke();
       drawPoint(context, mark.start);
       drawPoint(context, mark.end);
+      if (mark.label) drawLabel(context, mark.start, mark.label, mark.colour);
     }
     if (mark.type === "box") {
-      context.strokeStyle = mark.kind === "internal" ? "#35d07f" : mark.kind === "external" ? "#4aa3ff" : "#ff7a45";
+      context.strokeStyle = mark.colour || (mark.kind === "internal" ? "#35d07f" : mark.kind === "external" ? "#4aa3ff" : "#ff7a45");
       context.strokeRect(mark.start.x, mark.start.y, mark.end.x - mark.start.x, mark.end.y - mark.start.y);
-      drawLabel(context, mark.start, mark.kind === "internal" ? "Indoor unit" : mark.kind === "external" ? "Outdoor unit" : "Room");
+      drawLabel(context, mark.start, mark.label || (mark.kind === "internal" ? "Indoor unit" : mark.kind === "external" ? "Outdoor unit" : "Room"), mark.colour);
     }
     if (mark.type === "label") {
-      drawLabel(context, mark.point, mark.text);
+      drawLabel(context, mark.point, mark.text || mark.label, mark.colour);
     }
   }
 }
@@ -813,13 +879,14 @@ function drawPoint(context, point) {
   context.fill();
 }
 
-function drawLabel(context, point, text) {
+function drawLabel(context, point, text, colour = "#153047") {
+  const label = String(text || "Label");
   const padding = 10;
-  const metrics = context.measureText(text);
-  context.fillStyle = "rgba(21, 48, 71, 0.88)";
+  const metrics = context.measureText(label);
+  context.fillStyle = hexToRgba(colour, 0.88);
   context.fillRect(point.x, point.y, metrics.width + padding * 2, 44 + padding);
   context.fillStyle = "#ffffff";
-  context.fillText(text, point.x + padding, point.y + padding);
+  context.fillText(label, point.x + padding, point.y + padding);
 }
 
 async function saveAnnotatedPhoto(active) {
@@ -968,7 +1035,7 @@ function renderSoft() {
   const active = selectedCase();
   if (preview && active) preview.textContent = handoverText(active);
   if (questions && active) questions.innerHTML = questionList(active);
-  if (message && active) message.textContent = generateCustomerRequestMessage(active);
+  if (message && active) message.textContent = latestCustomerMessage(active) || generateCustomerRequestMessage(active);
   const aiPack = app.querySelector(".compact-preview");
   if (aiPack && active) aiPack.textContent = generateAiReviewPackJson(active);
   const nextAction = app.querySelector(".next-action-panel h2");
@@ -1024,6 +1091,10 @@ async function importAiResult(active) {
     outstandingBlockers: blockers.join("\n"),
   });
 
+  applyLeadUpdates(active, result.lead);
+  applyRoomUpdates(active, result.rooms);
+  applyOutsideUnitUpdates(active, result.outsideUnit);
+
   if (result.handoverNotes) {
     active.notes = String(result.handoverNotes);
   }
@@ -1036,7 +1107,9 @@ async function importAiResult(active) {
     active.status = "awaiting_customer";
   }
 
-  if (decision === "ready") {
+  if (result.nextAction && ["review_again", "send_customer_message", "wait_for_reply", "copy_handover_to_salesforce"].includes(result.nextAction)) {
+    active.nextAction = result.nextAction;
+  } else if (decision === "ready") {
     active.nextAction = "copy_handover_to_salesforce";
   } else if (customerMessage || blockers.length) {
     active.nextAction = "send_customer_message";
@@ -1044,8 +1117,172 @@ async function importAiResult(active) {
     active.nextAction = "review_again";
   }
 
+  await applyPhotoAnnotations(active, result.photoAnnotations);
   await persistActive(active);
   toast("AI result imported");
+}
+
+function applyLeadUpdates(active, lead) {
+  if (!lead || typeof lead !== "object") return;
+  const fields = [
+    "leadNumber",
+    "customerName",
+    "address",
+    "contactNumber",
+    "customerEmail",
+    "propertyType",
+    "installDate",
+    "planningDate",
+  ];
+  for (const field of fields) {
+    if (typeof lead[field] === "string" && lead[field].trim()) {
+      active[field] = lead[field].trim();
+    }
+  }
+}
+
+function applyRoomUpdates(active, rooms) {
+  if (!Array.isArray(rooms) || !rooms.length) return;
+  active.rooms = rooms.map((room, index) => {
+    const existing = active.rooms?.[index] || createEmptyRoom();
+    return {
+      ...existing,
+      roomName: textValue(room.roomName) || existing.roomName,
+      roomSize: textValue(room.roomSizeM2 ?? room.roomSize) || existing.roomSize,
+      suggestedUnitSize: textValue(room.suggestedUnitSize) || existing.suggestedUnitSize,
+      internalLocation: textValue(room.internalLocation) || existing.internalLocation,
+      pipeRun: textValue(room.pipeRun) || existing.pipeRun,
+      trunkingColour: textValue(room.trunkingColour) || existing.trunkingColour,
+      plugLocation: textValue(room.plugLocation) || existing.plugLocation,
+      electricalSupplyNotes: textValue(room.electricalSupplyNotes) || existing.electricalSupplyNotes,
+      wifiDongleRequired: typeof room.wifiDongleRequired === "boolean" ? room.wifiDongleRequired : existing.wifiDongleRequired,
+    };
+  });
+}
+
+function applyOutsideUnitUpdates(active, outsideUnit) {
+  if (!outsideUnit || typeof outsideUnit !== "object") return;
+  active.outsideUnit ||= {};
+  for (const field of ["location", "mounting", "clearances", "ladderAccess", "notes"]) {
+    const value = textValue(outsideUnit[field]);
+    if (value) active.outsideUnit[field] = value;
+  }
+}
+
+async function applyPhotoAnnotations(active, photoAnnotations) {
+  if (!Array.isArray(photoAnnotations) || !photoAnnotations.length) return;
+
+  for (const entry of photoAnnotations) {
+    const photo = active.photos?.find((item) => item.id === entry.photoId || item.name === entry.photoId || item.label === entry.photoId);
+    if (!photo) continue;
+
+    const image = await loadImage(photo.dataUrl);
+    const marks = annotationMarks(entry.annotations, image.naturalWidth, image.naturalHeight);
+    if (marks.length) {
+      photo.marks ||= [];
+      photo.marks.push(...marks);
+      await renderAnnotatedPhoto(photo);
+    }
+
+    const instructions = textValue(entry.instructions || entry.targetDescription);
+    if (instructions) {
+      photo.requestedAnnotation = [photo.requestedAnnotation, instructions].filter(Boolean).join("\n");
+    }
+  }
+}
+
+function annotationMarks(annotations, width, height) {
+  if (!Array.isArray(annotations)) return [];
+  const marks = [];
+
+  for (const annotation of annotations) {
+    const colour = validColour(annotation.colour) ? annotation.colour : "";
+    const label = textValue(annotation.label);
+
+    if (annotation.type === "line" && Array.isArray(annotation.points) && annotation.points.length >= 2) {
+      const points = annotation.points.map((point) => normalisedPoint(point, width, height)).filter(Boolean);
+      for (let index = 0; index < points.length - 1; index += 1) {
+        marks.push({
+          type: "line",
+          start: points[index],
+          end: points[index + 1],
+          label: index === 0 ? label : "",
+          colour,
+        });
+      }
+    }
+
+    if (annotation.type === "box" && annotation.rect) {
+      const start = normalisedPoint(annotation.rect, width, height);
+      const end = normalisedPoint({
+        x: Number(annotation.rect.x) + Number(annotation.rect.width),
+        y: Number(annotation.rect.y) + Number(annotation.rect.height),
+      }, width, height);
+      if (start && end) {
+        marks.push({
+          type: "box",
+          kind: boxKind(label),
+          start,
+          end,
+          label,
+          colour,
+        });
+      }
+    }
+
+    if (annotation.type === "label" && annotation.point) {
+      const point = normalisedPoint(annotation.point, width, height);
+      if (point) marks.push({ type: "label", point, text: label || "Label", colour });
+    }
+  }
+
+  return marks;
+}
+
+function normalisedPoint(point, width, height) {
+  const x = Number(point?.x);
+  const y = Number(point?.y);
+  if (!Number.isFinite(x) || !Number.isFinite(y)) return null;
+  if (x < 0 || y < 0 || x > 1 || y > 1) return null;
+  return {
+    x: Math.round(x * width),
+    y: Math.round(y * height),
+  };
+}
+
+function boxKind(label) {
+  const value = String(label || "").toLowerCase();
+  if (value.includes("outdoor") || value.includes("outside")) return "external";
+  if (value.includes("room")) return "room";
+  return "internal";
+}
+
+async function renderAnnotatedPhoto(photo) {
+  const image = await loadImage(photo.dataUrl);
+  const canvas = document.createElement("canvas");
+  canvas.width = image.naturalWidth;
+  canvas.height = image.naturalHeight;
+  const context = canvas.getContext("2d", { alpha: false });
+  context.drawImage(image, 0, 0);
+  drawMarks(context, photo.marks);
+  photo.annotatedDataUrl = canvas.toDataURL("image/jpeg", PHOTO_QUALITY);
+  photo.annotatedThumbDataUrl = drawCanvasToDataUrl(canvas, THUMB_MAX_EDGE).dataUrl;
+}
+
+function textValue(value) {
+  return typeof value === "string" ? value.trim() : value == null ? "" : String(value).trim();
+}
+
+function validColour(value) {
+  return typeof value === "string" && /^#[0-9a-f]{6}$/i.test(value);
+}
+
+function hexToRgba(value, alpha) {
+  if (!validColour(value)) return `rgba(21, 48, 71, ${alpha})`;
+  const red = parseInt(value.slice(1, 3), 16);
+  const green = parseInt(value.slice(3, 5), 16);
+  const blue = parseInt(value.slice(5, 7), 16);
+  return `rgba(${red}, ${green}, ${blue}, ${alpha})`;
 }
 
 async function downloadReviewPack(active) {
