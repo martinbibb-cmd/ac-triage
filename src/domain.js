@@ -15,6 +15,14 @@ export const PHOTO_TYPES = [
   "floorplan",
   "other",
 ];
+export const CASE_STATUSES = ["draft", "ai_review_needed", "awaiting_customer", "ready", "complete"];
+export const NEXT_ACTIONS = [
+  "review_again",
+  "send_customer_message",
+  "wait_for_reply",
+  "copy_handover_to_salesforce",
+];
+export const AI_DECISIONS = ["", "ready", "missing_info"];
 
 export const REFERENCE_DATA = {
   title: "Bosch Climate 3200i reference",
@@ -86,6 +94,8 @@ export function createEmptyCase() {
     contactNumber: "",
     customerEmail: "",
     sourceDetails: "",
+    status: "draft",
+    nextAction: "review_again",
     propertyType: "",
     jobStage: JOB_STAGES[0],
     installDate: "",
@@ -95,6 +105,31 @@ export function createEmptyCase() {
     outsideUnit: createEmptyOutsideUnit(),
     rooms: [createEmptyRoom()],
     photos: [],
+    reviewRounds: [],
+    customerReplies: [],
+    notes: "",
+  };
+}
+
+export function createEmptyReviewRound(round = 1) {
+  return {
+    id: cryptoRandomId(),
+    round,
+    sentAt: new Date().toISOString(),
+    inputSummary: "",
+    aiDecision: "",
+    aiOutput: "",
+    customerMessage: "",
+    outstandingBlockers: "",
+  };
+}
+
+export function createEmptyCustomerReply() {
+  return {
+    id: cryptoRandomId(),
+    receivedAt: new Date().toISOString(),
+    text: "",
+    photoIds: [],
     notes: "",
   };
 }
@@ -302,6 +337,8 @@ export function generateAiReviewPack(caseData) {
       installDate: clean(caseData.installDate),
       planningDate: clean(caseData.planningDate),
       pastedJobDetails: clean(caseData.sourceDetails),
+      status: CASE_STATUSES.includes(caseData.status) ? caseData.status : "draft",
+      nextAction: NEXT_ACTIONS.includes(caseData.nextAction) ? caseData.nextAction : "review_again",
     },
     rooms: rooms.map((room) => ({
       roomName: clean(room.roomName),
@@ -348,6 +385,21 @@ export function generateAiReviewPack(caseData) {
       notes: clean(photo.notes),
       requestedAnnotation: clean(photo.requestedAnnotation),
       hasAppMarkup: Boolean(photo.marks?.length || photo.annotatedDataUrl),
+    })),
+    reviewHistory: (caseData.reviewRounds ?? []).map((round, index) => ({
+      round: Number(round.round) || index + 1,
+      sentAt: clean(round.sentAt),
+      inputSummary: clean(round.inputSummary),
+      aiDecision: AI_DECISIONS.includes(round.aiDecision) ? round.aiDecision : "",
+      aiOutput: clean(round.aiOutput),
+      customerMessage: clean(round.customerMessage),
+      outstandingBlockers: splitLines(round.outstandingBlockers),
+    })),
+    customerReplies: (caseData.customerReplies ?? []).map((reply) => ({
+      receivedAt: clean(reply.receivedAt),
+      text: clean(reply.text),
+      photoIds: Array.isArray(reply.photoIds) ? reply.photoIds : [],
+      notes: clean(reply.notes),
     })),
     desiredOutput: {
       decision: "ready | missing_info",
@@ -444,6 +496,10 @@ function checkSummary(caseData, ids) {
 
 function formatDimensionRow(item) {
   return `${item.output}: H ${item.height}mm, W ${item.width}mm, D ${item.depth}mm, ${item.weight}kg`;
+}
+
+function splitLines(value) {
+  return clean(value).split(/\n+/).map((item) => item.trim()).filter(Boolean);
 }
 
 function cryptoRandomId() {

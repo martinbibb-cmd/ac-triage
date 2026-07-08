@@ -10,6 +10,9 @@ It is designed for iPad/iPhone use through Safari and can be published directly 
 - Paste raw Salesforce/job details
 - Copy a clean JSON AI review pack
 - Copy an AI review prompt for GPT/Gemini
+- Preserve multiple AI review rounds per lead
+- Preserve customer replies and newly supplied photo references
+- Show the next action: send customer message, wait for reply, review again, or copy handover to Salesforce
 - Upload photos separately into GPT/Gemini using the generated photo manifest
 - Capture lead/customer/address/contact details
 - Track the job stage with simple dropdowns
