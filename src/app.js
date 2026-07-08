@@ -13,6 +13,7 @@ import {
   createEmptyReviewRound,
   createEmptyRoom,
   extractSalesforceLeadDetails,
+  buildCaseTimeline,
   generateCustomerRequestMessage,
   generateAiReviewPackJson,
   generateAiReviewPrompt,
@@ -207,12 +208,36 @@ function roundTripPanel(item) {
           <textarea class="quick-reply-input" placeholder="Paste the customer's text reply here. Add any new photos with the Upload photos button before creating the next AI pack."></textarea>
         </label>
         <button data-action="add-quick-customer-reply">Add reply to next JSON</button>
+      </div>
+
+      <div class="workflow-step">
+        <h3>Case timeline</h3>
+        ${timelineView(item)}
         <div>
           <h3>Current review JSON preview</h3>
           <pre class="notes-preview compact-preview">${escapeHtml(generateAiReviewPackJson(item))}</pre>
         </div>
       </div>
     </section>
+  `;
+}
+
+function timelineView(item) {
+  const timeline = buildCaseTimeline(item);
+  if (!timeline.length) return `<p class="muted">No timeline events yet.</p>`;
+  return `
+    <ol class="timeline-list">
+      ${timeline.map((event) => `
+        <li>
+          <strong>${escapeHtml(event.summary)}</strong>
+          ${event.at ? `<small>${escapeHtml(formatDateTime(event.at))}</small>` : ""}
+          ${event.decision ? `<span class="timeline-pill">${escapeHtml(event.decision)}</span>` : ""}
+          ${event.detail ? `<p>${escapeHtml(event.detail)}</p>` : ""}
+          ${event.customerMessage ? `<p>${escapeHtml(event.customerMessage)}</p>` : ""}
+          ${event.blockers?.length ? `<p>Blockers: ${escapeHtml(event.blockers.join(" | "))}</p>` : ""}
+        </li>
+      `).join("")}
+    </ol>
   `;
 }
 
@@ -536,6 +561,17 @@ function latestCustomerMessage(item) {
     if (message) return message;
   }
   return "";
+}
+
+function formatDateTime(value) {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value;
+  return date.toLocaleString([], {
+    day: "2-digit",
+    month: "short",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
 }
 
 function bindEvents() {

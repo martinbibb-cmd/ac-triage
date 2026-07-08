@@ -385,6 +385,7 @@ export function generateAiReviewPack(caseData, options = {}) {
   const extracted = extractSalesforceLeadDetails(caseData.sourceDetails);
   return {
     schema: "bg.ac_triage.review_pack.v1",
+    timeline: buildCaseTimeline(caseData),
     lead: {
       leadNumber: clean(caseData.leadNumber) || extracted.leadNumber || "",
       customerName: clean(caseData.customerName) || extracted.customerName || "",
@@ -473,6 +474,67 @@ export function generateAiReviewPack(caseData, options = {}) {
   };
 }
 
+export function buildCaseTimeline(caseData) {
+  const items = [];
+  if (caseData.createdAt) {
+    items.push({
+      type: "case_created",
+      at: caseData.createdAt,
+      summary: "Case created",
+    });
+  }
+  if (clean(caseData.sourceDetails)) {
+    const extracted = extractSalesforceLeadDetails(caseData.sourceDetails);
+    const extractedParts = [
+      extracted.leadNumber && `lead ${extracted.leadNumber}`,
+      extracted.customerName,
+      extracted.contactNumber,
+      extracted.customerEmail,
+    ].filter(Boolean);
+    items.push({
+      type: "salesforce_text",
+      at: caseData.updatedAt || caseData.createdAt || "",
+      summary: "Salesforce text pasted",
+      detail: extractedParts.length ? `Extracted ${extractedParts.join(", ")}` : "Raw Salesforce text included",
+    });
+  }
+  if (caseData.photos?.length) {
+    items.push({
+      type: "photos_uploaded",
+      at: caseData.updatedAt || caseData.createdAt || "",
+      summary: `${caseData.photos.length} photo${caseData.photos.length === 1 ? "" : "s"} uploaded`,
+      detail: caseData.photos.map((photo) => `${clean(photo.label || photo.name) || "Photo"} (${clean(photo.type) || "other"})`).join(" | "),
+    });
+  }
+  for (const round of caseData.reviewRounds ?? []) {
+    items.push({
+      type: "ai_review",
+      at: clean(round.sentAt),
+      summary: `AI review round ${round.round || ""}`.trim(),
+      decision: clean(round.aiDecision),
+      customerMessage: clean(round.customerMessage),
+      blockers: splitLines(round.outstandingBlockers),
+    });
+  }
+  for (const reply of caseData.customerReplies ?? []) {
+    items.push({
+      type: "customer_reply",
+      at: clean(reply.receivedAt),
+      summary: "Customer reply added",
+      detail: clean(reply.text),
+      photoIds: Array.isArray(reply.photoIds) ? reply.photoIds : [],
+    });
+  }
+  if (clean(caseData.notes) || ["ready", "complete"].includes(caseData.status)) {
+    items.push({
+      type: "handover_ready",
+      at: caseData.updatedAt || "",
+      summary: caseData.status === "complete" ? "Handover complete" : "Handover ready",
+    });
+  }
+  return items;
+}
+
 export function generateAiReviewPackJson(caseData, options = {}) {
   return JSON.stringify(generateAiReviewPack(caseData, options), null, 2);
 }
@@ -484,6 +546,7 @@ export function generateAiReviewPrompt() {
     "Review the JSON review pack and any separately uploaded photos. Return JSON only. Do not return prose outside JSON.",
     "The pastedJobDetails field may be copied from a Classic Salesforce CHI Lead page. Useful sections include CHI Lead Details, Contact Information, Payment Information, Portal Details, Source Information, System Information, Photos, Appointments, Notes & Attachments, Jobs, BigMachines Quotes, Finance Applications, Activity History, and CHI Lead Field History.",
     "Extract factual values from those sections where present, especially lead number, customer name, address, phone/email, lead status, job status, portal/photo status, quote/package rows, appointment/install dates, notes/activity, and field-history status changes.",
+    "Use the timeline array to understand previous AI reviews, customer replies, uploaded photos, and whether the case is waiting, ready, or complete.",
     "",
     "Required response schema:",
     JSON.stringify({

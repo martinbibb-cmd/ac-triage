@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
+  buildCaseTimeline,
   createEmptyCase,
   extractSalesforceLeadDetails,
   generateAiReviewPack,
@@ -325,4 +326,52 @@ test("generateAiReviewPack includes previous AI decision and customer reply", ()
   ]);
   assert.equal(pack.customerReplies[0].text, "Fuse board photo attached");
   assert.deepEqual(pack.customerReplies[0].photoIds, ["photo-2"]);
+});
+
+test("buildCaseTimeline captures source, photos, AI reviews, and replies", () => {
+  const triageCase = createEmptyCase();
+  triageCase.createdAt = "2026-07-08T09:00:00.000Z";
+  triageCase.updatedAt = "2026-07-08T12:00:00.000Z";
+  triageCase.sourceDetails = "CHI Lead- 50733791 - Louise Thomas - SG1 3ND - (WZ1_S11_63)";
+  triageCase.photos = [{
+    id: "photo-1",
+    name: "outside.jpg",
+    label: "Outside",
+    type: "outdoor_location",
+    notes: "",
+    requestedAnnotation: "",
+    marks: [],
+  }];
+  triageCase.reviewRounds = [{
+    id: "round-1",
+    round: 1,
+    sentAt: "2026-07-08T10:00:00.000Z",
+    inputSummary: "Initial pack",
+    aiDecision: "missing_info",
+    aiOutput: "{}",
+    customerMessage: "Please send fuse board photo",
+    outstandingBlockers: "Fuse board photo missing",
+  }];
+  triageCase.customerReplies = [{
+    id: "reply-1",
+    receivedAt: "2026-07-08T11:00:00.000Z",
+    text: "Photo attached",
+    photoIds: ["photo-2"],
+    notes: "",
+  }];
+
+  const timeline = buildCaseTimeline(triageCase);
+  const pack = generateAiReviewPack(triageCase);
+
+  assert.deepEqual(timeline.map((event) => event.type), [
+    "case_created",
+    "salesforce_text",
+    "photos_uploaded",
+    "ai_review",
+    "customer_reply",
+  ]);
+  assert.equal(timeline[1].detail, "Extracted lead 50733791, Louise Thomas");
+  assert.equal(timeline[3].decision, "missing_info");
+  assert.deepEqual(timeline[3].blockers, ["Fuse board photo missing"]);
+  assert.equal(pack.timeline.length, timeline.length);
 });
