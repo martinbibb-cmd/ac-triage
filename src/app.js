@@ -12,6 +12,7 @@ import {
   createEmptyCustomerReply,
   createEmptyReviewRound,
   createEmptyRoom,
+  extractSalesforceLeadDetails,
   generateCustomerRequestMessage,
   generateAiReviewPackJson,
   generateAiReviewPrompt,
@@ -719,8 +720,26 @@ async function handleAction(event) {
 async function updateCaseField(event) {
   const active = selectedCase();
   active[event.target.dataset.field] = event.target.value;
+  if (event.target.dataset.field === "sourceDetails") {
+    applySalesforceExtraction(active);
+  }
   await persistActive(active, false);
   renderSoft();
+}
+
+function applySalesforceExtraction(active) {
+  const extracted = extractSalesforceLeadDetails(active.sourceDetails);
+  for (const [target, value] of Object.entries({
+    leadNumber: extracted.leadNumber,
+    customerName: extracted.customerName,
+    address: extracted.address,
+    contactNumber: extracted.contactNumber,
+    customerEmail: extracted.customerEmail,
+  })) {
+    if (!String(active[target] || "").trim() && value) {
+      active[target] = value;
+    }
+  }
 }
 
 async function updateChecklistField(event) {

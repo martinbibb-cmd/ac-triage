@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
   createEmptyCase,
+  extractSalesforceLeadDetails,
   generateAiReviewPack,
   generateAiReviewPackJson,
   generateAiReviewPrompt,
@@ -19,6 +20,27 @@ test("suggestUnitSize returns expected small, medium, and large bands", () => {
   assert.equal(suggestUnitSize("25.1"), "LARGE");
   assert.equal(suggestUnitSize("45"), "LARGE");
   assert.equal(suggestUnitSize(""), "");
+});
+
+test("extractSalesforceLeadDetails pulls useful fields from Salesforce text", () => {
+  const text = `
+    CHI Lead- 50733791 - Louise Thomas - SG1 3ND - (WZ1_S11_63)
+    CHI Lead Details
+    Customer Name Miss Louise Thomas
+    Contact Information
+    Customer Address SG1 3ND 2 Langthorne Avenue
+    Mobile Phone 07711209584
+    Customer Email louise.thomas@hotmail.com
+  `;
+
+  const extracted = extractSalesforceLeadDetails(text);
+
+  assert.equal(extracted.leadNumber, "50733791");
+  assert.equal(extracted.customerName, "Louise Thomas");
+  assert.equal(extracted.contactNumber, "07711209584");
+  assert.equal(extracted.customerEmail, "louise.thomas@hotmail.com");
+  assert.equal(extracted.postcode, "SG1 3ND");
+  assert.equal(extracted.address, "SG1 3ND 2 Langthorne Avenue");
 });
 
 test("generateMissingQuestions only asks for missing handover details", () => {
@@ -137,8 +159,7 @@ test("generateReferenceText includes Climate 3200i clearances and dimensions", (
 
 test("generateAiReviewPack creates clean JSON without image data", () => {
   const triageCase = createEmptyCase();
-  triageCase.leadNumber = "LEAD-456";
-  triageCase.sourceDetails = "Raw Salesforce notes";
+  triageCase.sourceDetails = "CHI Lead- 50733791 - Louise Thomas - SG1 3ND - (WZ1_S11_63)\nMobile Phone 07711209584";
   triageCase.photos = [{
     id: "photo-1",
     name: "meter.jpg",
@@ -154,8 +175,11 @@ test("generateAiReviewPack creates clean JSON without image data", () => {
   const json = generateAiReviewPackJson(triageCase);
 
   assert.equal(pack.schema, "bg.ac_triage.review_pack.v1");
-  assert.equal(pack.lead.leadNumber, "LEAD-456");
-  assert.equal(pack.lead.pastedJobDetails, "Raw Salesforce notes");
+  assert.equal(pack.lead.leadNumber, "50733791");
+  assert.equal(pack.lead.customerName, "Louise Thomas");
+  assert.equal(pack.lead.contactNumber, "07711209584");
+  assert.equal(pack.lead.pastedJobDetails, triageCase.sourceDetails);
+  assert.equal(pack.lead.extractedFromSalesforceText.postcode, "SG1 3ND");
   assert.equal(pack.evidence.electricMeterPhotoPresent, true);
   assert.deepEqual(pack.photoManifest[0], {
     id: "photo-1",
