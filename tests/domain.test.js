@@ -176,3 +176,38 @@ test("generateAiReviewPrompt instructs model not to invent information", () => {
   assert.match(prompt, /Do not invent missing information/);
   assert.match(prompt, /photo annotation instructions/);
 });
+
+test("generateAiReviewPack includes previous AI decision and customer reply", () => {
+  const triageCase = createEmptyCase();
+  triageCase.status = "awaiting_customer";
+  triageCase.nextAction = "review_again";
+  triageCase.reviewRounds = [{
+    id: "round-1",
+    round: 1,
+    sentAt: "2026-07-08T10:00:00.000Z",
+    inputSummary: "Initial pack",
+    aiDecision: "missing_info",
+    aiOutput: "Need fuse board photo",
+    customerMessage: "Please send fuse board photo",
+    outstandingBlockers: "Fuse board photo missing\nOutdoor location unclear",
+  }];
+  triageCase.customerReplies = [{
+    id: "reply-1",
+    receivedAt: "2026-07-08T11:00:00.000Z",
+    text: "Fuse board photo attached",
+    photoIds: ["photo-2"],
+    notes: "Customer replied by SMS",
+  }];
+
+  const pack = generateAiReviewPack(triageCase);
+
+  assert.equal(pack.lead.status, "awaiting_customer");
+  assert.equal(pack.lead.nextAction, "review_again");
+  assert.equal(pack.reviewHistory[0].aiDecision, "missing_info");
+  assert.deepEqual(pack.reviewHistory[0].outstandingBlockers, [
+    "Fuse board photo missing",
+    "Outdoor location unclear",
+  ]);
+  assert.equal(pack.customerReplies[0].text, "Fuse board photo attached");
+  assert.deepEqual(pack.customerReplies[0].photoIds, ["photo-2"]);
+});

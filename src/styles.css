@@ -176,6 +176,17 @@ button.active {
   font-size: 1.1rem;
 }
 
+.next-action-panel {
+  display: grid;
+  gap: 12px;
+  border-color: var(--brand-2);
+  box-shadow: inset 6px 0 0 var(--brand-2);
+}
+
+.next-action-panel h2 {
+  margin-bottom: 0;
+}
+
 .panel-head {
   justify-content: space-between;
   margin-bottom: 12px;
@@ -253,6 +264,20 @@ textarea {
   border-top: 1px solid var(--line);
   padding-top: 16px;
   margin-top: 16px;
+}
+
+.stack {
+  display: grid;
+  gap: 12px;
+}
+
+.sub-card {
+  display: grid;
+  gap: 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #f9fbfc;
+  padding: 12px;
 }
 
 .room-card:first-child {

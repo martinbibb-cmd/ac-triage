@@ -1,11 +1,16 @@
 import {
   CHECKLIST,
+  AI_DECISIONS,
+  CASE_STATUSES,
   JOB_STAGES,
+  NEXT_ACTIONS,
   PHOTO_TYPES,
   REFERENCE_DATA,
   TRUNKING_COLOURS,
   WORKFLOW_STEPS,
   createEmptyCase,
+  createEmptyCustomerReply,
+  createEmptyReviewRound,
   createEmptyRoom,
   generateCustomerRequestMessage,
   generateAiReviewPackJson,
@@ -105,6 +110,21 @@ function caseEditor(item) {
       <button class="danger" data-action="delete-case">Delete</button>
     </div>
 
+    <section class="panel next-action-panel">
+      <div>
+        <p class="eyebrow">Next action</p>
+        <h2>${escapeHtml(nextActionLabel(item.nextAction))}</h2>
+      </div>
+      <div class="grid two">
+        <label>Status
+          <select data-field="status">${options(CASE_STATUSES, item.status || "draft")}</select>
+        </label>
+        <label>Next action
+          <select data-field="nextAction">${options(NEXT_ACTIONS, item.nextAction || "review_again")}</select>
+        </label>
+      </div>
+    </section>
+
     <div class="grid two">
       <section class="panel">
         <h2>Case details</h2>
@@ -146,6 +166,26 @@ function caseEditor(item) {
       </div>
       <p class="hint">Copy the JSON, upload the photos separately into GPT/Gemini, then paste the prompt. Image data is not embedded in the JSON.</p>
       <pre class="notes-preview compact-preview">${escapeHtml(generateAiReviewPackJson(item))}</pre>
+    </section>
+
+    <section class="panel">
+      <div class="panel-head">
+        <h2>Review rounds</h2>
+        <button data-action="add-review-round">Add review round</button>
+      </div>
+      <div class="stack">
+        ${(item.reviewRounds ?? []).map(reviewRoundEditor).join("") || `<p class="muted">No AI review pasted yet.</p>`}
+      </div>
+    </section>
+
+    <section class="panel">
+      <div class="panel-head">
+        <h2>Customer replies</h2>
+        <button data-action="add-customer-reply">Add customer reply</button>
+      </div>
+      <div class="stack">
+        ${(item.customerReplies ?? []).map(customerReplyEditor).join("") || `<p class="muted">No customer replies added yet.</p>`}
+      </div>
     </section>
 
     <section class="panel">
@@ -360,6 +400,37 @@ function photoCard(photo) {
   `;
 }
 
+function reviewRoundEditor(round) {
+  return `
+    <article class="sub-card">
+      <div class="grid three">
+        <label>Round<input inputmode="numeric" data-review-field="round" data-review="${round.id}" value="${attr(round.round)}"></label>
+        <label>Sent at<input data-review-field="sentAt" data-review="${round.id}" value="${attr(round.sentAt || "")}"></label>
+        <label>AI decision
+          <select data-review-field="aiDecision" data-review="${round.id}">
+            ${options(AI_DECISIONS, round.aiDecision || "")}
+          </select>
+        </label>
+      </div>
+      <label>Input summary<textarea data-review-field="inputSummary" data-review="${round.id}">${escapeHtml(round.inputSummary || "")}</textarea></label>
+      <label>AI output<textarea data-review-field="aiOutput" data-review="${round.id}">${escapeHtml(round.aiOutput || "")}</textarea></label>
+      <label>Customer message from AI<textarea data-review-field="customerMessage" data-review="${round.id}">${escapeHtml(round.customerMessage || "")}</textarea></label>
+      <label>Outstanding blockers<textarea data-review-field="outstandingBlockers" data-review="${round.id}" placeholder="One blocker per line">${escapeHtml(round.outstandingBlockers || "")}</textarea></label>
+    </article>
+  `;
+}
+
+function customerReplyEditor(reply) {
+  return `
+    <article class="sub-card">
+      <label>Received at<input data-reply-field="receivedAt" data-reply="${reply.id}" value="${attr(reply.receivedAt || "")}"></label>
+      <label>Customer reply<textarea data-reply-field="text" data-reply="${reply.id}">${escapeHtml(reply.text || "")}</textarea></label>
+      <label>Photo IDs supplied<textarea data-reply-field="photoIds" data-reply="${reply.id}" placeholder="photo id per line">${escapeHtml((reply.photoIds || []).join("\n"))}</textarea></label>
+      <label>Notes<textarea data-reply-field="notes" data-reply="${reply.id}">${escapeHtml(reply.notes || "")}</textarea></label>
+    </article>
+  `;
+}
+
 function markupEditor(item) {
   const photo = item.photos.find((entry) => entry.id === state.markup.photoId);
   if (!photo) return "";
@@ -423,6 +494,14 @@ function bindEvents() {
     field.addEventListener("input", updatePhotoField);
     field.addEventListener("change", updatePhotoField);
   });
+  app.querySelectorAll("[data-review-field]").forEach((field) => {
+    field.addEventListener("input", updateReviewRoundField);
+    field.addEventListener("change", updateReviewRoundField);
+  });
+  app.querySelectorAll("[data-reply-field]").forEach((field) => {
+    field.addEventListener("input", updateCustomerReplyField);
+    field.addEventListener("change", updateCustomerReplyField);
+  });
 
   const labelInput = app.querySelector("[data-action='label-text']");
   if (labelInput) {
@@ -463,6 +542,16 @@ async function handleAction(event) {
   }
   if (action === "remove-room") {
     active.rooms = active.rooms.filter((room) => room.id !== event.currentTarget.dataset.room);
+    await persistActive(active);
+  }
+  if (action === "add-review-round") {
+    active.reviewRounds ||= [];
+    active.reviewRounds.push(createEmptyReviewRound(active.reviewRounds.length + 1));
+    await persistActive(active);
+  }
+  if (action === "add-customer-reply") {
+    active.customerReplies ||= [];
+    active.customerReplies.push(createEmptyCustomerReply());
     await persistActive(active);
   }
   if (action === "copy-notes" || action === "copy-form") {
@@ -570,6 +659,28 @@ async function updatePhotoField(event) {
   const photo = active.photos.find((entry) => entry.id === event.target.dataset.photo);
   if (!photo) return;
   photo[event.target.dataset.photoField] = event.target.value;
+  await persistActive(active, false);
+  renderSoft();
+}
+
+async function updateReviewRoundField(event) {
+  const active = selectedCase();
+  const round = active.reviewRounds?.find((entry) => entry.id === event.target.dataset.review);
+  if (!round) return;
+  const field = event.target.dataset.reviewField;
+  round[field] = field === "round" ? Number(event.target.value) || "" : event.target.value;
+  await persistActive(active, false);
+  renderSoft();
+}
+
+async function updateCustomerReplyField(event) {
+  const active = selectedCase();
+  const reply = active.customerReplies?.find((entry) => entry.id === event.target.dataset.reply);
+  if (!reply) return;
+  const field = event.target.dataset.replyField;
+  reply[field] = field === "photoIds"
+    ? event.target.value.split(/\n+/).map((item) => item.trim()).filter(Boolean)
+    : event.target.value;
   await persistActive(active, false);
   renderSoft();
 }
@@ -843,6 +954,8 @@ function renderSoft() {
   if (message && active) message.textContent = generateCustomerRequestMessage(active);
   const aiPack = app.querySelector(".compact-preview");
   if (aiPack && active) aiPack.textContent = generateAiReviewPackJson(active);
+  const nextAction = app.querySelector(".next-action-panel h2");
+  if (nextAction && active) nextAction.textContent = nextActionLabel(active.nextAction);
 }
 
 async function copyText(text) {
@@ -910,7 +1023,23 @@ function toast(message) {
 }
 
 function options(values, selected) {
-  return values.map((value) => `<option value="${attr(value)}" ${value === selected ? "selected" : ""}>${escapeHtml(value || "Auto")}</option>`).join("");
+  return values.map((value) => `<option value="${attr(value)}" ${value === selected ? "selected" : ""}>${escapeHtml(optionLabel(value))}</option>`).join("");
+}
+
+function nextActionLabel(value) {
+  return ({
+    send_customer_message: "Send customer message",
+    wait_for_reply: "Wait for reply",
+    review_again: "Review again",
+    copy_handover_to_salesforce: "Copy handover to Salesforce",
+  })[value] || "Review again";
+}
+
+function optionLabel(value) {
+  if (!value) return "Auto";
+  return nextActionLabel(value) === "Review again" && value !== "review_again"
+    ? String(value).replace(/_/g, " ")
+    : nextActionLabel(value);
 }
 
 function escapeHtml(value) {
