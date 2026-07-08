@@ -214,6 +214,19 @@ button.active {
   color: var(--brand);
 }
 
+.source-guide {
+  border: 1px solid #dce6eb;
+  border-radius: 8px;
+  background: #f8fafb;
+  color: #33424f;
+  padding: 12px;
+  line-height: 1.4;
+}
+
+.source-guide strong {
+  color: var(--brand);
+}
+
 .compact-head {
   align-items: end;
   margin-bottom: 0;
