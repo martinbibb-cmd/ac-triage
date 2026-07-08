@@ -706,7 +706,7 @@ async function handleAction(event) {
     await copyText(generateMissingQuestions(active).join("\n") || "No missing customer questions.");
   }
   if (action === "copy-request") {
-    await copyText(generateCustomerRequestMessage(active));
+    await copyText(customerMessageText(active));
   }
   if (action === "sms-customer") {
     sendCustomerSms(active);
@@ -1385,13 +1385,17 @@ function handoverText(active) {
   return String(active.notes || "").trim() || generateHandoverNotes(active);
 }
 
+function customerMessageText(active) {
+  return latestCustomerMessage(active) || generateCustomerRequestMessage(active);
+}
+
 function sendCustomerSms(active) {
   const number = String(active.contactNumber ?? "").replace(/[^\d+]/g, "");
   if (!number) {
     toast("No phone number");
     return;
   }
-  window.location.href = `sms:${number}&body=${encodeURIComponent(generateCustomerRequestMessage(active))}`;
+  window.location.href = `sms:${number}&body=${encodeURIComponent(customerMessageText(active))}`;
 }
 
 function sendCustomerEmail(active) {
@@ -1401,7 +1405,7 @@ function sendCustomerEmail(active) {
     return;
   }
   const subject = `Air con triage details${active.leadNumber ? ` - ${active.leadNumber}` : ""}`;
-  const body = generateCustomerRequestMessage(active);
+  const body = customerMessageText(active);
   window.location.href = `mailto:${encodeURIComponent(email)}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
 }
 
