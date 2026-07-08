@@ -101,37 +101,7 @@ function emptyState() {
 
 function caseEditor(item) {
   return `
-    <section class="panel next-action-panel">
-      <div>
-        <p class="eyebrow">Next action</p>
-        <h2>${escapeHtml(nextActionLabel(item.nextAction))}</h2>
-      </div>
-      <div class="grid two">
-        <label>Status
-          <select data-field="status">${options(CASE_STATUSES, item.status || "draft")}</select>
-        </label>
-        <label>Next action
-          <select data-field="nextAction">${options(NEXT_ACTIONS, item.nextAction || "review_again")}</select>
-        </label>
-      </div>
-    </section>
-
     ${roundTripPanel(item)}
-
-    <section class="panel">
-      <div class="panel-head">
-        <h2>Photos in</h2>
-        <label class="file-button">
-          Upload photos
-          <input type="file" accept="image/*" multiple data-action="add-photos">
-        </label>
-      </div>
-      <p class="hint">Photos are compressed locally before storage. AI can return normalized annotation coordinates and the app will draw them onto saved copies.</p>
-      <div class="photo-grid">
-        ${item.photos.map(photoCard).join("") || `<p class="muted">No photos added yet.</p>`}
-      </div>
-      ${markupEditor(item)}
-    </section>
 
     <details class="advanced-section">
       <summary>Advanced fields and manual edits</summary>
@@ -154,40 +124,80 @@ function roundTripPanel(item) {
     <section class="panel round-trip-panel">
       <div class="panel-head">
         <div>
-          <p class="eyebrow">Round trip</p>
-          <h2>Salesforce -> JSON/photos -> AI -> JSON result</h2>
+          <p class="eyebrow">Ordered workflow</p>
+          <h2>Salesforce in -> AI review -> customer message</h2>
         </div>
       </div>
-      <label>Paste job / Salesforce / customer details
-        <textarea class="large-input" data-field="sourceDetails" placeholder="Paste the lead text, Salesforce notes, customer messages, quote notes, or anything the AI should review.">${escapeHtml(item.sourceDetails || "")}</textarea>
-      </label>
-      <div class="primary-actions">
-        <button class="primary" data-action="copy-ai-prompt">Copy AI review prompt</button>
-        <button class="primary" data-action="copy-ai-pack">Copy compact JSON</button>
-        <button data-action="copy-full-ai-pack">Copy full JSON with images</button>
-        <button data-action="download-review-pack">Download review pack ZIP</button>
+
+      <div class="workflow-step">
+        <h3>1. Paste Salesforce details and add photos</h3>
+        <label>Salesforce / job details
+          <textarea class="large-input" data-field="sourceDetails" placeholder="Paste the lead text, Salesforce notes, quote notes, existing customer messages, or anything the AI should review.">${escapeHtml(item.sourceDetails || "")}</textarea>
+        </label>
+        <div class="panel-head compact-head">
+          <p class="hint">Add any photos from Salesforce before creating the AI pack. Photos are compressed locally to reduce iPad memory pressure.</p>
+          <label class="file-button">
+            Upload photos
+            <input type="file" accept="image/*" multiple data-action="add-photos">
+          </label>
+        </div>
+        <div class="photo-grid">
+          ${item.photos.map(photoCard).join("") || `<p class="muted">No photos added yet.</p>`}
+        </div>
+        ${markupEditor(item)}
       </div>
-      <p class="hint">Best practical flow: copy the prompt, download the ZIP, then upload review-pack.json and photos to GPT/Gemini. Compact JSON lists photos only. Full JSON embeds compressed photos and can be large.</p>
-      <label>Paste AI JSON result
-        <textarea class="ai-result-input large-input" placeholder='{"schema":"bg.ac_triage.ai_result.v1","decision":"missing_info","nextAction":"send_customer_message",...}'></textarea>
-      </label>
-      <div class="primary-actions">
+
+      <div class="workflow-step">
+        <h3>2. Send pack to AI</h3>
+        <div class="primary-actions">
+          <button class="primary" data-action="copy-ai-prompt">Copy AI review prompt</button>
+          <button class="primary" data-action="copy-ai-pack">Copy compact JSON</button>
+          <button data-action="copy-full-ai-pack">Copy full JSON with images</button>
+          <button data-action="download-review-pack">Download review pack ZIP</button>
+        </div>
+        <p class="hint">Use compact JSON plus uploaded photos for GPT/Gemini chat. Use full JSON only when the AI/API workflow needs embedded compressed photos.</p>
+      </div>
+
+      <div class="workflow-step">
+        <h3>3. Paste AI JSON response</h3>
+        <label>AI JSON result
+          <textarea class="ai-result-input large-input" placeholder='{"schema":"bg.ac_triage.ai_result.v1","decision":"missing_info","nextAction":"send_customer_message",...}'></textarea>
+        </label>
         <button class="primary" data-action="import-ai-result">Import AI JSON result</button>
-        <button data-action="copy-request">Copy customer message</button>
-        <button data-action="sms-customer">Text customer</button>
-        <button data-action="email-customer">Email customer</button>
+        <section class="next-action-panel embedded-action">
+          <div>
+            <p class="eyebrow">AI result state</p>
+            <h2>${escapeHtml(nextActionLabel(item.nextAction))}</h2>
+          </div>
+          <div class="grid two">
+            <label>Status
+              <select data-field="status">${options(CASE_STATUSES, item.status || "draft")}</select>
+            </label>
+            <label>Next action
+              <select data-field="nextAction">${options(NEXT_ACTIONS, item.nextAction || "review_again")}</select>
+            </label>
+          </div>
+        </section>
       </div>
-      <label>Add customer reply for next AI round
-        <textarea class="quick-reply-input" placeholder="Paste the customer's reply here, then add any new photos above."></textarea>
-      </label>
-      <button data-action="add-quick-customer-reply">Add reply to next JSON</button>
-      <div class="grid two">
-        <div>
-          <h3>Customer message</h3>
-          <pre class="message-preview">${escapeHtml(latestCustomerMessage(item) || generateCustomerRequestMessage(item))}</pre>
+
+      <div class="workflow-step">
+        <h3>4. Send customer message if AI asks for one</h3>
+        <pre class="message-preview">${escapeHtml(latestCustomerMessage(item) || generateCustomerRequestMessage(item))}</pre>
+        <div class="primary-actions">
+          <button class="primary" data-action="copy-request">Copy customer message</button>
+          <button data-action="sms-customer">Text customer</button>
+          <button data-action="email-customer">Email customer</button>
         </div>
+      </div>
+
+      <div class="workflow-step">
+        <h3>5. Add customer reply, then review again</h3>
+        <label>Customer reply for next AI round
+          <textarea class="quick-reply-input" placeholder="Paste the customer's reply here, then add any new photos above before creating the next AI pack."></textarea>
+        </label>
+        <button data-action="add-quick-customer-reply">Add reply to next JSON</button>
         <div>
-          <h3>Current JSON preview</h3>
+          <h3>Current review JSON preview</h3>
           <pre class="notes-preview compact-preview">${escapeHtml(generateAiReviewPackJson(item))}</pre>
         </div>
       </div>

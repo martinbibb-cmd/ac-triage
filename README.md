@@ -6,13 +6,16 @@ It is designed for iPad/iPhone use through Safari and can be published directly 
 
 ## Features
 
-- Paste raw Salesforce/job/customer details
-- Add triage photos
+- Paste raw Salesforce/job/customer details first
+- Add Salesforce photos before creating the AI pack
+- Send the AI prompt plus JSON/photos to GPT/Gemini
+- Paste the AI JSON response back into the app
+- Send the customer message only after the AI response asks for one
+- Add the customer reply and any new photos, then create the next AI pack
 - Copy a clean compact JSON AI review pack
 - Copy full JSON with embedded compressed images when needed
 - Download review pack ZIP with `review-pack.json` and photo files
 - Copy a strict AI review prompt for GPT/Gemini
-- Paste AI JSON result back into the app
 - Populate extracted lead, room, outside unit, customer message, and handover fields from AI JSON
 - Apply structured AI photo annotations when the AI returns normalized coordinates
 - Preserve multiple AI review rounds per lead
