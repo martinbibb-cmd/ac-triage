@@ -13,6 +13,7 @@ It is designed for iPad/iPhone use through Safari and can be published directly 
 - Send the AI prompt plus JSON/photos to GPT/Gemini
 - Paste the AI JSON response back into the app
 - Send the customer message only after the AI response asks for one
+- Customer messages are tailored to missing customer-solvable details, including specific indoor/outdoor/electrical photo requests
 - Add the customer text reply and upload any new photos separately, then create the next AI pack
 - Copy a clean compact JSON AI review pack
 - Copy full JSON with embedded compressed images when needed
