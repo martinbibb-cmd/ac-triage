@@ -50,6 +50,8 @@ test("generateMissingQuestions only asks for missing handover details", () => {
   triageCase.checklist.customerPhotosPresent = true;
   triageCase.checklist.electricMeterPhoto = true;
   triageCase.checklist.fuseBoardPhoto = true;
+  triageCase.checklist.internalUnitLocationChecked = true;
+  triageCase.checklist.externalUnitLocationChecked = true;
   triageCase.rooms[0].internalLocation = "Above patio doors";
   triageCase.rooms[0].pipeRun = "Straight through wall";
   triageCase.rooms[0].trunkingColour = "White";
@@ -68,6 +70,8 @@ test("generateCustomerRequestMessage asks only for missing data", () => {
   triageCase.checklist.customerPhotosPresent = true;
   triageCase.checklist.electricMeterPhoto = true;
   triageCase.checklist.fuseBoardPhoto = true;
+  triageCase.checklist.internalUnitLocationChecked = true;
+  triageCase.checklist.externalUnitLocationChecked = true;
   triageCase.installDate = "2026-09-10";
   triageCase.planningDate = "2026-09-01";
   triageCase.rooms[0].internalLocation = "Bedroom outside wall";
@@ -84,12 +88,79 @@ test("generateCustomerRequestMessage asks only for missing data", () => {
   assert.doesNotMatch(message, /electric meter/);
 });
 
+test("generateCustomerRequestMessage asks for missing outdoor photos specifically", () => {
+  const triageCase = createEmptyCase();
+  triageCase.customerName = "Alex Customer";
+  triageCase.installDate = "2026-09-10";
+  triageCase.planningDate = "2026-09-01";
+  triageCase.checklist.customerPhotosPresent = true;
+  triageCase.checklist.electricMeterPhoto = true;
+  triageCase.checklist.fuseBoardPhoto = true;
+  triageCase.checklist.internalUnitLocationChecked = true;
+  triageCase.rooms[0].internalLocation = "Bedroom outside wall";
+  triageCase.rooms[0].pipeRun = "Straight through wall";
+  triageCase.rooms[0].trunkingColour = "White";
+  triageCase.rooms[0].plugLocation = "Socket beside bed";
+  triageCase.outsideUnit.location = "Rear patio";
+  triageCase.outsideUnit.clearances = "Clear";
+  triageCase.outsideUnit.ladderAccess = "No ladder required";
+  triageCase.photos = [{
+    id: "photo-1",
+    name: "indoor.jpg",
+    label: "Indoor",
+    type: "indoor_location",
+    notes: "",
+    requestedAnnotation: "",
+    marks: [],
+  }];
+
+  const message = generateCustomerRequestMessage(triageCase);
+
+  assert.match(message, /outdoor unit location and the space around it/);
+  assert.doesNotMatch(message, /indoor and outdoor unit locations/);
+  assert.doesNotMatch(message, /electric meter/);
+});
+
+test("generateCustomerRequestMessage does not ask for outdoor photo when it exists", () => {
+  const triageCase = createEmptyCase();
+  triageCase.customerName = "Alex Customer";
+  triageCase.installDate = "2026-09-10";
+  triageCase.planningDate = "2026-09-01";
+  triageCase.checklist.customerPhotosPresent = true;
+  triageCase.checklist.electricMeterPhoto = true;
+  triageCase.checklist.fuseBoardPhoto = true;
+  triageCase.checklist.internalUnitLocationChecked = true;
+  triageCase.checklist.externalUnitLocationChecked = true;
+  triageCase.checklist.internalUnitLocationChecked = true;
+  triageCase.checklist.externalUnitLocationChecked = true;
+  triageCase.rooms[0].internalLocation = "Bedroom outside wall";
+  triageCase.rooms[0].pipeRun = "Straight through wall";
+  triageCase.rooms[0].trunkingColour = "White";
+  triageCase.rooms[0].plugLocation = "Socket beside bed";
+  triageCase.outsideUnit.location = "Rear patio";
+  triageCase.outsideUnit.clearances = "Clear";
+  triageCase.outsideUnit.ladderAccess = "No ladder required";
+  triageCase.photos = [{
+    id: "photo-1",
+    name: "outside.jpg",
+    label: "Outside",
+    type: "outdoor_location",
+    notes: "",
+    requestedAnnotation: "",
+    marks: [],
+  }];
+
+  assert.doesNotMatch(generateCustomerRequestMessage(triageCase), /outdoor unit location and the space around it/);
+});
+
 test("generateCustomerRequestMessage handles complete data", () => {
   const triageCase = createEmptyCase();
   triageCase.customerName = "Alex Customer";
   triageCase.checklist.customerPhotosPresent = true;
   triageCase.checklist.electricMeterPhoto = true;
   triageCase.checklist.fuseBoardPhoto = true;
+  triageCase.checklist.internalUnitLocationChecked = true;
+  triageCase.checklist.externalUnitLocationChecked = true;
   triageCase.installDate = "2026-09-10";
   triageCase.planningDate = "2026-09-01";
   triageCase.rooms[0].internalLocation = "Bedroom outside wall";
@@ -116,6 +187,8 @@ test("generateHandoverNotes creates short Salesforce-ready triage text", () => {
   triageCase.checklist.fuseBoardPhoto = true;
   triageCase.checklist.clearancesChecked = true;
   triageCase.checklist.ladderAccessChecked = true;
+  triageCase.checklist.internalUnitLocationChecked = true;
+  triageCase.checklist.externalUnitLocationChecked = true;
   triageCase.outsideUnit = {
     location: "Patio wall",
     mounting: "Wall bracket",

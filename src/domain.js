@@ -217,6 +217,9 @@ export function extractSalesforceLeadDetails(text) {
 export function generateMissingQuestions(caseData) {
   const questions = [];
   const outsideUnit = caseData.outsideUnit ?? createEmptyOutsideUnit();
+  const hasIndoorPhoto = hasPhotoType(caseData, "indoor_location");
+  const hasOutdoorPhoto = hasPhotoType(caseData, "outdoor_location");
+  const hasAnyPhoto = Boolean(caseData.photos?.length || caseData.checklist?.customerPhotosPresent);
 
   for (const room of caseData.rooms ?? []) {
     const roomPrefix = room.roomName ? `${room.roomName}: ` : "";
@@ -243,8 +246,16 @@ export function generateMissingQuestions(caseData) {
   if (!outsideUnit.ladderAccess?.trim() && !caseData.checklist?.ladderAccessChecked) {
     questions.push("Can you confirm if ladder access or height safety is needed for the outdoor unit?");
   }
-  if (!caseData.checklist?.customerPhotosPresent) {
+
+  if (!hasAnyPhoto) {
     questions.push("Can you send clear photos of the proposed indoor and outdoor unit locations?");
+  } else {
+    if (!hasIndoorPhoto && !caseData.checklist?.internalUnitLocationChecked) {
+      questions.push("Can you send a clear photo of the proposed indoor unit location?");
+    }
+    if (!hasOutdoorPhoto && !caseData.checklist?.externalUnitLocationChecked) {
+      questions.push("Can you send clear photos of the proposed outdoor unit location and the space around it?");
+    }
   }
   if (!caseData.checklist?.electricMeterPhoto) {
     questions.push("Can you send a clear photo of the electric meter?");
@@ -542,7 +553,8 @@ export function generateAiReviewPrompt() {
     "- Do not invent missing information.",
     "- Keep output short and factual.",
     "- If not ready, prioritise blockers over general observations.",
-    "- Customer questions must be plain English and suitable for SMS/email.",
+    "- Customer questions must be plain English, suitable for SMS/email, and only ask for information or photos the customer can provide.",
+    "- Tailor customer photo requests to the missing evidence. For example, if outdoor location photos are missing, ask specifically for clear photos of the proposed outdoor unit location and surrounding space.",
     "- Use normalised photo coordinates from 0 to 1 for photoAnnotations so the app can mark images automatically.",
     "- If exact photo coordinates are not possible, put clear text in photoAnnotations[].instructions and leave annotations empty.",
     "- Include previous AI decision and customer replies from the review pack when deciding the next action.",
