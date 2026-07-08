@@ -169,6 +169,22 @@ test("generateAiReviewPack creates clean JSON without image data", () => {
   assert.doesNotMatch(json, /SHOULD_NOT_EXPORT/);
 });
 
+test("generateAiReviewPack can include compressed image data for full JSON export", () => {
+  const triageCase = createEmptyCase();
+  triageCase.photos = [{
+    id: "photo-1",
+    name: "meter.jpg",
+    type: "electric_meter",
+    dataUrl: "data:image/jpeg;base64,COMPRESSED",
+    marks: [],
+  }];
+
+  const json = generateAiReviewPackJson(triageCase, { includeImages: true });
+
+  assert.match(json, /data:image\/jpeg;base64,COMPRESSED/);
+  assert.match(json, /"mimeType": "image\/jpeg"/);
+});
+
 test("generateAiReviewPrompt instructs model not to invent information", () => {
   const prompt = generateAiReviewPrompt();
 
