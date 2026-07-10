@@ -15,7 +15,17 @@ export const PHOTO_TYPES = [
   "floorplan",
   "other",
 ];
-export const CASE_STATUSES = ["draft", "ai_review_needed", "awaiting_customer", "ready", "complete"];
+export const SCHEMA_VERSION = 2;
+export const LEGACY_CASE_STATUSES = ["draft", "ai_review_needed", "awaiting_customer", "ready", "complete"];
+export const CASE_STATUSES = [
+  "not_started",
+  "evidence_review",
+  "customer_contact_required",
+  "awaiting_customer",
+  "internal_clarification_required",
+  "ready_for_handover",
+  "completed",
+];
 export const NEXT_ACTIONS = [
   "review_again",
   "send_customer_message",
@@ -23,6 +33,16 @@ export const NEXT_ACTIONS = [
   "copy_handover_to_salesforce",
 ];
 export const AI_DECISIONS = ["", "ready", "missing_info"];
+export const EVIDENCE_STATES = [
+  "confirmed",
+  "missing",
+  "unclear",
+  "not_applicable",
+  "awaiting_customer",
+  "awaiting_internal_clarification",
+];
+export const RATIONALE_CONFIDENCE = ["confirmed", "suspected", "unknown"];
+export const RESOLVER_TYPES = ["customer", "customer_photo", "internal", "admin", "surveyor"];
 
 export const REFERENCE_DATA = {
   title: "Bosch Climate 3200i reference",
@@ -81,11 +101,236 @@ export const WORKFLOW_STEPS = [
   { id: "spreadsheetUpdated", label: "Spreadsheet updated / complete" },
 ];
 
+export const EVIDENCE_ITEMS = [
+  { id: "lead_customer_details", label: "Lead/customer details", resolverType: "admin" },
+  { id: "quote_package", label: "Quote/package", resolverType: "admin" },
+  { id: "indoor_unit_locations", label: "Indoor-unit locations", resolverType: "customer" },
+  { id: "indoor_unit_wall_photos", label: "Indoor-unit wall photos", resolverType: "customer_photo" },
+  { id: "outdoor_unit_location", label: "Outdoor-unit location", resolverType: "customer" },
+  { id: "outdoor_unit_photos", label: "Outdoor-unit photos", resolverType: "customer_photo" },
+  { id: "pipe_route", label: "Pipe route", resolverType: "customer" },
+  { id: "condensate_route", label: "Condensate route", resolverType: "surveyor" },
+  { id: "electrical_evidence", label: "Electrical evidence", resolverType: "internal" },
+  { id: "consumer_unit_photo", label: "Consumer-unit photo", resolverType: "customer_photo" },
+  { id: "nearest_internal_socket", label: "Nearest relevant internal socket", resolverType: "customer" },
+  { id: "access_ladder_requirements", label: "Access and ladder requirements", resolverType: "customer" },
+  { id: "customer_preferences", label: "Customer preferences", resolverType: "customer" },
+  { id: "planning_status", label: "Planning status", resolverType: "admin" },
+  { id: "install_date", label: "Install date", resolverType: "admin" },
+  { id: "other_notes", label: "Other notes", resolverType: "admin" },
+];
+
+export const QUESTION_DEFINITIONS = [
+  questionDefinition({
+    id: "case.lead_details",
+    category: "lead_customer_details",
+    customerQuestion: "",
+    internalLabel: "Lead/customer details",
+    why: "Supports Salesforce handover and customer contact.",
+    whoUsesAnswer: "BG/admin",
+    resolverType: "admin",
+    requiredWhen: [{ field: "leadNumber", op: "missing" }],
+    completeWhen: [{ field: "leadNumber", op: "present" }],
+  }),
+  questionDefinition({
+    id: "case.quoted_package",
+    category: "quote_package",
+    customerQuestion: "",
+    internalLabel: "Quoted package",
+    why: "Supports package and equipment suitability review.",
+    whoUsesAnswer: "BG/admin",
+    resolverType: "admin",
+    requiredWhen: [{ field: "caseDetails.quotedPackage", op: "missing" }],
+    completeWhen: [{ field: "caseDetails.quotedPackage", op: "present" }],
+  }),
+  questionDefinition({
+    id: "indoor.room_size",
+    category: "indoor_unit_locations",
+    customerQuestion: "What is the approximate room size?",
+    internalLabel: "Room size",
+    why: "Supports equipment suitability review.",
+    whoUsesAnswer: "Surveyor",
+    resolverType: "customer",
+    scope: "indoorUnit",
+    requiredWhen: [{ field: "room", op: "present" }],
+    completeWhen: [{ field: "roomSize", op: "present" }],
+  }),
+  questionDefinition({
+    id: "indoor.location",
+    category: "indoor_unit_locations",
+    customerQuestion: "Where would you like the indoor unit fitted?",
+    internalLabel: "Indoor unit agreed location",
+    why: "Supports mounting, pipe route and appearance review.",
+    whoUsesAnswer: "Installer and surveyor",
+    resolverType: "customer",
+    scope: "indoorUnit",
+    requiredWhen: [{ field: "room", op: "present" }],
+    completeWhen: [{ field: "agreedLocation", legacyField: "internalLocation", op: "present" }],
+  }),
+  questionDefinition({
+    id: "indoor.wall_photo",
+    category: "indoor_unit_wall_photos",
+    customerQuestion: "Can you send a clear photo of the proposed indoor unit wall?",
+    internalLabel: "Indoor wall photo",
+    why: "Supports mounting, access and pipe exit review.",
+    whoUsesAnswer: "Installer and surveyor",
+    resolverType: "customer_photo",
+    scope: "indoorUnit",
+    requiredWhen: [{ field: "agreedLocation", legacyField: "internalLocation", op: "present" }],
+    completeWhen: [{ evidence: "indoor_unit_wall_photos", stateIn: ["confirmed", "not_applicable"] }],
+  }),
+  questionDefinition({
+    id: "indoor.pipe_route",
+    category: "pipe_route",
+    customerQuestion: "What route should the pipework take from the indoor unit?",
+    internalLabel: "Pipe route",
+    why: "Supports installation route, materials and appearance review.",
+    whoUsesAnswer: "Installer and surveyor",
+    resolverType: "customer",
+    scope: "indoorUnit",
+    requiredWhen: [{ field: "agreedLocation", legacyField: "internalLocation", op: "present" }],
+    completeWhen: [{ field: "pipeRoute", legacyField: "pipeRun", op: "present" }],
+  }),
+  questionDefinition({
+    id: "indoor.trunking_colour",
+    category: "customer_preferences",
+    customerQuestion: "Would you prefer white or black trunking?",
+    internalLabel: "Trunking colour",
+    why: "Customer preference.",
+    whoUsesAnswer: "Installer",
+    resolverType: "customer",
+    scope: "indoorUnit",
+    requiredWhen: [{ field: "pipeRoute", legacyField: "pipeRun", op: "present" }],
+    completeWhen: [{ field: "trunkingColour", op: "present" }],
+  }),
+  questionDefinition({
+    id: "indoor.nearest_socket",
+    category: "nearest_internal_socket",
+    customerQuestion: "Where is the nearest relevant internal socket?",
+    internalLabel: "Nearest internal socket",
+    why: "Reason not yet confirmed",
+    whoUsesAnswer: "Internal technical reviewer",
+    resolverType: "customer",
+    rationaleConfidence: "unknown",
+    scope: "indoorUnit",
+    requiredWhen: [{ field: "agreedLocation", legacyField: "internalLocation", op: "present" }],
+    completeWhen: [{ field: "nearestSocket", legacyField: "plugLocation", op: "present" }],
+  }),
+  questionDefinition({
+    id: "outdoor.location",
+    category: "outdoor_unit_location",
+    customerQuestion: "Where can the outdoor unit go?",
+    internalLabel: "Outdoor location",
+    why: "Supports mounting, access and clearance review.",
+    whoUsesAnswer: "Installer and surveyor",
+    resolverType: "customer",
+    requiredWhen: [],
+    completeWhen: [{ field: "outdoorUnit.location", legacyField: "outsideUnit.location", op: "present" }],
+  }),
+  questionDefinition({
+    id: "outdoor.photos",
+    category: "outdoor_unit_photos",
+    customerQuestion: "Can you send clear photos of the proposed outdoor unit position and surrounding space?",
+    internalLabel: "Outdoor-unit photos",
+    why: "Supports mounting, access and clearance review.",
+    whoUsesAnswer: "Installer and surveyor",
+    resolverType: "customer_photo",
+    requiredWhen: [{ field: "outdoorUnit.location", legacyField: "outsideUnit.location", op: "present" }],
+    completeWhen: [{ evidence: "outdoor_unit_photos", stateIn: ["confirmed", "not_applicable"] }],
+  }),
+  questionDefinition({
+    id: "outdoor.clearances",
+    category: "outdoor_unit_location",
+    customerQuestion: "",
+    internalLabel: "Outdoor clearances/access",
+    why: "Supports mounting, access and clearance review.",
+    whoUsesAnswer: "Surveyor",
+    resolverType: "surveyor",
+    requiredWhen: [{ field: "outdoorUnit.location", legacyField: "outsideUnit.location", op: "present" }],
+    completeWhen: [{ field: "outdoorUnit.clearances", legacyField: "outsideUnit.clearances", op: "present" }],
+  }),
+  questionDefinition({
+    id: "outdoor.condensate",
+    category: "condensate_route",
+    customerQuestion: "",
+    internalLabel: "Condensate route",
+    why: "Supports installation route and drainage review.",
+    whoUsesAnswer: "Surveyor",
+    resolverType: "surveyor",
+    requiredWhen: [{ field: "outdoorUnit.location", legacyField: "outsideUnit.location", op: "present" }],
+    completeWhen: [{ field: "outdoorUnit.condensateRoute", op: "present" }, { evidence: "condensate_route", stateIn: ["confirmed", "not_applicable"] }],
+    completeMode: "any",
+  }),
+  questionDefinition({
+    id: "electrical.consumer_unit_photo",
+    category: "consumer_unit_photo",
+    customerQuestion: "Can you send a clear photo of the consumer unit/fuse board?",
+    internalLabel: "Consumer-unit photo",
+    why: "Supports electrical evidence review.",
+    whoUsesAnswer: "Internal technical reviewer",
+    resolverType: "customer_photo",
+    requiredWhen: [],
+    completeWhen: [{ evidence: "consumer_unit_photo", stateIn: ["confirmed", "not_applicable"] }],
+  }),
+  questionDefinition({
+    id: "electrical.spare_rcd_rcbo_way",
+    category: "electrical_evidence",
+    customerQuestion: "",
+    internalLabel: "Spare RCD/RCBO way",
+    why: "Reason not yet confirmed",
+    whoUsesAnswer: "Internal technical reviewer",
+    resolverType: "internal",
+    rationaleConfidence: "unknown",
+    requiredWhen: [{ evidence: "consumer_unit_photo", stateIn: ["confirmed"] }],
+    completeWhen: [{ field: "electrical.spareWay", op: "present" }, { evidence: "electrical_evidence", stateIn: ["confirmed", "not_applicable"] }],
+    completeMode: "any",
+  }),
+  questionDefinition({
+    id: "electrical.visible_earth",
+    category: "electrical_evidence",
+    customerQuestion: "",
+    internalLabel: "Visible earth",
+    why: "Reason not yet confirmed",
+    whoUsesAnswer: "Internal technical reviewer",
+    resolverType: "internal",
+    rationaleConfidence: "unknown",
+    requiredWhen: [{ evidence: "consumer_unit_photo", stateIn: ["confirmed"] }],
+    completeWhen: [{ field: "electrical.visibleEarth", op: "present" }, { evidence: "electrical_evidence", stateIn: ["confirmed", "not_applicable"] }],
+    completeMode: "any",
+  }),
+  questionDefinition({
+    id: "case.planning_status",
+    category: "planning_status",
+    customerQuestion: "",
+    internalLabel: "Planning status",
+    why: "Supports admin readiness review.",
+    whoUsesAnswer: "BG/admin",
+    resolverType: "admin",
+    requiredWhen: [],
+    completeWhen: [{ field: "caseDetails.planningStatus", legacyField: "planningDate", op: "present" }, { evidence: "planning_status", stateIn: ["confirmed", "not_applicable"] }],
+    completeMode: "any",
+  }),
+  questionDefinition({
+    id: "case.install_date",
+    category: "install_date",
+    customerQuestion: "",
+    internalLabel: "Install date",
+    why: "Supports handover scheduling.",
+    whoUsesAnswer: "BG/admin",
+    resolverType: "admin",
+    requiredWhen: [],
+    completeWhen: [{ field: "caseDetails.installDate", legacyField: "installDate", op: "present" }, { evidence: "install_date", stateIn: ["confirmed", "not_applicable"] }],
+    completeMode: "any",
+  }),
+];
+
 export function createEmptyCase() {
   const checklist = Object.fromEntries(CHECKLIST.map((item) => [item.id, false]));
   const workflow = Object.fromEntries(WORKFLOW_STEPS.map((item) => [item.id, false]));
+  const id = cryptoRandomId();
   return {
-    id: cryptoRandomId(),
+    schemaVersion: SCHEMA_VERSION,
+    id,
     createdAt: new Date().toISOString(),
     updatedAt: new Date().toISOString(),
     leadNumber: "",
@@ -94,8 +339,33 @@ export function createEmptyCase() {
     contactNumber: "",
     customerEmail: "",
     sourceDetails: "",
-    status: "draft",
+    status: "not_started",
     nextAction: "review_again",
+    caseDetails: {
+      quotedPackage: "",
+      indoorUnitCount: 1,
+      planningStatus: "",
+      installDate: "",
+    },
+    evidenceStates: createDefaultEvidenceStates(),
+    answers: {},
+    indoorUnits: [createEmptyIndoorUnit()],
+    outdoorUnit: createEmptyOutdoorUnit(),
+    electrical: {
+      spareWay: "",
+      visibleEarth: "",
+      notes: "",
+    },
+    timeline: [],
+    generatedOutputs: {},
+    aiReview: {
+      suggestions: [],
+    },
+    completionStatus: {
+      status: "not_started",
+      nextAction: "Start intake",
+      readyForHandover: false,
+    },
     propertyType: "",
     jobStage: JOB_STAGES[0],
     installDate: "",
@@ -107,6 +377,34 @@ export function createEmptyCase() {
     photos: [],
     reviewRounds: [],
     customerReplies: [],
+    notes: "",
+  };
+}
+
+export function createEmptyIndoorUnit() {
+  return {
+    id: cryptoRandomId(),
+    room: "",
+    roomSize: "",
+    agreedLocation: "",
+    wallConstruction: "",
+    pipeRoute: "",
+    trunkingColour: "White",
+    trunkingOther: "",
+    nearestSocket: "",
+    accessDetails: "",
+    notes: "",
+  };
+}
+
+export function createEmptyOutdoorUnit() {
+  return {
+    location: "",
+    mounting: "",
+    route: "",
+    clearances: "",
+    access: "",
+    condensateRoute: "",
     notes: "",
   };
 }
@@ -536,6 +834,333 @@ export function buildCaseTimeline(caseData) {
   return items;
 }
 
+export function migrateCaseToCurrent(caseData) {
+  if (!caseData || typeof caseData !== "object") return createEmptyCase();
+  if (caseData.schemaVersion === SCHEMA_VERSION) {
+    return normalizeCurrentCase(caseData);
+  }
+
+  const migrated = normalizeCurrentCase({
+    ...createEmptyCase(),
+    ...caseData,
+    schemaVersion: SCHEMA_VERSION,
+    status: mapLegacyStatus(caseData.status),
+    caseDetails: {
+      quotedPackage: caseData.caseDetails?.quotedPackage || caseData.quotedPackage || "",
+      indoorUnitCount: Number(caseData.caseDetails?.indoorUnitCount || caseData.rooms?.length || 1),
+      planningStatus: caseData.caseDetails?.planningStatus || caseData.planningDate || "",
+      installDate: caseData.caseDetails?.installDate || caseData.installDate || "",
+    },
+    evidenceStates: migrateEvidenceStates(caseData),
+    answers: caseData.answers ?? {},
+    indoorUnits: migrateIndoorUnits(caseData),
+    outdoorUnit: migrateOutdoorUnit(caseData),
+    electrical: {
+      spareWay: caseData.electrical?.spareWay || (caseData.checklist?.spareFuseChecked ? "Checked" : ""),
+      visibleEarth: caseData.electrical?.visibleEarth || (caseData.checklist?.visibleEarthChecked ? "Checked" : ""),
+      notes: caseData.electrical?.notes || "",
+    },
+    timeline: Array.isArray(caseData.timeline) && caseData.timeline.length ? caseData.timeline : buildCaseTimeline(caseData),
+    generatedOutputs: caseData.generatedOutputs ?? {},
+    aiReview: {
+      suggestions: caseData.aiReview?.suggestions ?? [],
+    },
+    legacy: {
+      schemaVersion: caseData.schemaVersion ?? 1,
+      status: caseData.status ?? "",
+      nextAction: caseData.nextAction ?? "",
+      originalWorkflowShape: "round_trip_v1",
+    },
+  });
+  migrated.completionStatus = calculateCompletionStatus(migrated);
+  migrated.status = migrated.completionStatus.status;
+  return migrated;
+}
+
+export function evaluateQuestions(caseData) {
+  const current = normalizeCurrentCase(caseData);
+  const evaluated = [];
+
+  for (const definition of QUESTION_DEFINITIONS) {
+    if (definition.scope === "indoorUnit") {
+      const units = current.indoorUnits?.length ? current.indoorUnits : migrateIndoorUnits(current);
+      for (const [index, unit] of units.entries()) {
+        const scoped = {
+          ...definition,
+          key: `${definition.id}:${unit.id || index}`,
+          scopeId: unit.id || String(index),
+          scopeIndex: index,
+          internalLabel: `${definition.internalLabel} - ${unit.room || unit.roomName || `Indoor unit ${index + 1}`}`,
+        };
+        evaluated.push(evaluateQuestion(scoped, current, unit));
+      }
+      continue;
+    }
+    evaluated.push(evaluateQuestion({ ...definition, key: definition.id }, current));
+  }
+
+  return evaluated.filter((question) => question.relevant);
+}
+
+export function outstandingItems(caseData) {
+  const questions = evaluateQuestions(caseData).filter((question) => !question.complete);
+  const groups = {
+    customerQuestions: [],
+    customerPhotosRequired: [],
+    internalTechnicalClarification: [],
+    bgAdminIssue: [],
+    surveyorReview: [],
+    complete: [],
+  };
+
+  for (const question of questions) {
+    if (question.resolverType === "customer") groups.customerQuestions.push(question);
+    else if (question.resolverType === "customer_photo") groups.customerPhotosRequired.push(question);
+    else if (question.resolverType === "internal") groups.internalTechnicalClarification.push(question);
+    else if (question.resolverType === "admin") groups.bgAdminIssue.push(question);
+    else if (question.resolverType === "surveyor") groups.surveyorReview.push(question);
+  }
+
+  if (!questions.length) {
+    groups.complete.push({
+      id: "complete",
+      internalLabel: "Ready for Salesforce handover",
+      resolverType: "complete",
+    });
+  }
+
+  return groups;
+}
+
+export function calculateCompletionStatus(caseData) {
+  const current = normalizeCurrentCase(caseData);
+  const groups = outstandingItems(current);
+  const customerCount = groups.customerQuestions.length + groups.customerPhotosRequired.length;
+  const internalCount = groups.internalTechnicalClarification.length + groups.bgAdminIssue.length + groups.surveyorReview.length;
+  const hasIntake = Boolean(clean(current.leadNumber) || clean(current.customerName) || clean(current.sourceDetails));
+
+  if (current.status === "completed") {
+    return { status: "completed", nextAction: "Case completed", readyForHandover: true };
+  }
+  if (!hasIntake) {
+    return { status: "not_started", nextAction: "Paste Salesforce text or enter case details", readyForHandover: false };
+  }
+  if (customerCount > 0) {
+    return {
+      status: "customer_contact_required",
+      nextAction: groups.customerPhotosRequired.length ? "Request missing customer photos" : "Ask customer outstanding questions",
+      readyForHandover: false,
+    };
+  }
+  if (internalCount > 0) {
+    return {
+      status: "internal_clarification_required",
+      nextAction: groups.bgAdminIssue.length ? "Resolve BG/admin items" : "Resolve internal technical clarification",
+      readyForHandover: false,
+    };
+  }
+  return { status: "ready_for_handover", nextAction: "Copy Salesforce handover note", readyForHandover: true };
+}
+
+export function generateGuidedCustomerMessage(caseData) {
+  const current = normalizeCurrentCase(caseData);
+  const groups = outstandingItems(current);
+  const customerQuestions = [...groups.customerQuestions, ...groups.customerPhotosRequired]
+    .map((question) => question.customerQuestion)
+    .filter(Boolean);
+  const uniqueQuestions = [...new Set(customerQuestions)];
+  const greeting = clean(current.customerName) ? `Hi ${firstName(current.customerName)},` : "Hi,";
+
+  if (!uniqueQuestions.length) {
+    return [greeting, "", "Thanks, we have the triage information we need from you at the moment."].join("\n");
+  }
+
+  return [
+    greeting,
+    "",
+    "We are checking the air con installation details and need the following from you:",
+    "",
+    ...uniqueQuestions.map((question) => `- ${question}`),
+    "",
+    "Thanks",
+  ].join("\n");
+}
+
+export function generateSalesforceHandover(caseData) {
+  const current = normalizeCurrentCase(caseData);
+  const sections = [];
+  pushLineSection(sections, "Lead", [lineValue("Lead", current.leadNumber)]);
+  pushLineSection(sections, "Customer", [
+    lineValue("Customer", current.customerName),
+    lineValue("Phone", current.contactNumber),
+    lineValue("Email", current.customerEmail),
+  ]);
+  pushLineSection(sections, "Property", [lineValue("Property", current.address), lineValue("Property type", current.propertyType)]);
+  pushLineSection(sections, "Quoted system", [lineValue("Quoted system", current.caseDetails?.quotedPackage || current.quotedPackage)]);
+
+  const indoorBlocks = (current.indoorUnits ?? []).map((unit, index) => compactLines([
+    lineValue("room", unit.room || unit.roomName || `Indoor unit ${index + 1}`),
+    lineValue("agreed location", unit.agreedLocation || unit.internalLocation),
+    lineValue("wall/construction", unit.wallConstruction),
+    lineValue("pipe route", unit.pipeRoute || unit.pipeRun),
+    lineValue("nearest socket", unit.nearestSocket || unit.plugLocation),
+    lineValue("relevant access details", unit.accessDetails),
+  ])).filter(Boolean);
+  if (indoorBlocks.length) sections.push(`Indoor units:\n${indoorBlocks.map((block) => `- ${block.replace(/\n/g, "\n  ")}`).join("\n")}`);
+
+  pushLineSection(sections, "Outdoor unit", [
+    lineValue("position", current.outdoorUnit?.location || current.outsideUnit?.location),
+    lineValue("mounting", current.outdoorUnit?.mounting || current.outsideUnit?.mounting),
+    lineValue("route", current.outdoorUnit?.route),
+    lineValue("clearances/access", [current.outdoorUnit?.clearances || current.outsideUnit?.clearances, current.outdoorUnit?.access || current.outsideUnit?.ladderAccess].filter(Boolean).join("; ")),
+    lineValue("condensate", current.outdoorUnit?.condensateRoute),
+  ]);
+  pushLineSection(sections, "Electrical", [
+    lineValue("consumer-unit evidence", evidenceLabel(current, "consumer_unit_photo")),
+    lineValue("spare way", current.electrical?.spareWay),
+    lineValue("visible earth", current.electrical?.visibleEarth),
+    lineValue("relevant socket/location evidence", socketSummary(current)),
+  ]);
+  pushLineSection(sections, "Customer preferences", [lineValue("Customer preferences", preferencesSummary(current))]);
+  pushLineSection(sections, "Planning", [lineValue("Planning", current.caseDetails?.planningStatus || current.planningDate)]);
+  pushLineSection(sections, "Install date", [lineValue("Install date", current.caseDetails?.installDate || current.installDate)]);
+
+  const unresolved = Object.values(outstandingItems(current))
+    .flat()
+    .filter((item) => item.id !== "complete")
+    .map((item) => item.internalLabel);
+  pushLineSection(sections, "Outstanding items", unresolved.map((item) => `- ${item}`));
+
+  return sections.join("\n\n");
+}
+
+export function generateManagerCompletionMessage(caseData) {
+  const current = normalizeCurrentCase(caseData);
+  const lead = clean(current.leadNumber) || "case";
+  return `Lead ${lead} triage completed and updated in Salesforce.`;
+}
+
+export function generateOutputs(caseData) {
+  return {
+    salesforceHandover: generateSalesforceHandover(caseData),
+    customerFollowUp: generateGuidedCustomerMessage(caseData),
+    internalQuestions: formatInternalQuestions(caseData),
+    managerCompletion: generateManagerCompletionMessage(caseData),
+  };
+}
+
+export function exportPortableCase(caseData, options = {}) {
+  const current = migrateCaseToCurrent(caseData);
+  const includeImages = Boolean(options.includeImages);
+  const outputs = generateOutputs(current);
+  return {
+    schema: "bg.ac_triage.case.v2",
+    schemaVersion: SCHEMA_VERSION,
+    exportedAt: new Date().toISOString(),
+    caseDetails: current.caseDetails,
+    lead: {
+      id: current.id,
+      leadNumber: current.leadNumber,
+      customerName: current.customerName,
+      address: current.address,
+      contactNumber: current.contactNumber,
+      customerEmail: current.customerEmail,
+      sourceDetails: current.sourceDetails,
+      propertyType: current.propertyType,
+    },
+    answers: current.answers ?? {},
+    evidenceStates: current.evidenceStates ?? createDefaultEvidenceStates(),
+    indoorUnits: current.indoorUnits ?? [],
+    outdoorUnit: current.outdoorUnit ?? createEmptyOutdoorUnit(),
+    electrical: current.electrical ?? {},
+    customerReplies: current.customerReplies ?? [],
+    timeline: current.timeline?.length ? current.timeline : buildCaseTimeline(current),
+    generatedOutputs: outputs,
+    timestamps: {
+      createdAt: current.createdAt,
+      updatedAt: current.updatedAt,
+    },
+    completionStatus: calculateCompletionStatus(current),
+    photoMetadata: (current.photos ?? []).map((photo) => ({
+      id: photo.id,
+      name: photo.name,
+      label: photo.label,
+      type: photo.type,
+      notes: photo.notes,
+      requestedAnnotation: photo.requestedAnnotation,
+      hasOriginal: Boolean(photo.dataUrl),
+      hasAnnotated: Boolean(photo.annotatedDataUrl),
+      marks: photo.marks ?? [],
+      ...(includeImages ? {
+        dataUrl: photo.dataUrl || "",
+        thumbDataUrl: photo.thumbDataUrl || "",
+        annotatedDataUrl: photo.annotatedDataUrl || "",
+        annotatedThumbDataUrl: photo.annotatedThumbDataUrl || "",
+      } : {}),
+    })),
+    status: current.status,
+    legacy: current.legacy,
+  };
+}
+
+export function importPortableCase(portable) {
+  if (!portable || typeof portable !== "object") {
+    throw new Error("Import file is not a valid case JSON object");
+  }
+  if (portable.schema === "bg.ac_triage.case.v2" || portable.schemaVersion === SCHEMA_VERSION) {
+    const lead = portable.lead ?? {};
+    return migrateCaseToCurrent({
+      id: lead.id || cryptoRandomId(),
+      schemaVersion: SCHEMA_VERSION,
+      createdAt: portable.timestamps?.createdAt || new Date().toISOString(),
+      updatedAt: portable.timestamps?.updatedAt || new Date().toISOString(),
+      leadNumber: lead.leadNumber || "",
+      customerName: lead.customerName || "",
+      address: lead.address || "",
+      contactNumber: lead.contactNumber || "",
+      customerEmail: lead.customerEmail || "",
+      sourceDetails: lead.sourceDetails || "",
+      propertyType: lead.propertyType || "",
+      caseDetails: portable.caseDetails ?? {},
+      answers: portable.answers ?? {},
+      evidenceStates: portable.evidenceStates ?? {},
+      indoorUnits: portable.indoorUnits ?? [],
+      outdoorUnit: portable.outdoorUnit ?? {},
+      electrical: portable.electrical ?? {},
+      customerReplies: portable.customerReplies ?? [],
+      timeline: portable.timeline ?? [],
+      generatedOutputs: portable.generatedOutputs ?? {},
+      photos: (portable.photoMetadata ?? []).map((photo) => ({ ...photo })),
+      status: portable.status,
+      legacy: portable.legacy,
+    });
+  }
+  if (portable.schema === "bg.ac_triage.review_pack.v1" || portable.lead || portable.rooms || portable.outsideUnit) {
+    return migrateCaseToCurrent(importLegacyReviewPack(portable));
+  }
+  return migrateCaseToCurrent(portable);
+}
+
+export function caseExportFileName(caseData, extension = "json") {
+  const current = normalizeCurrentCase(caseData);
+  const lead = safeNamePart(current.leadNumber || "case");
+  const surname = safeNamePart(clean(current.customerName).split(/\s+/).at(-1) || "customer");
+  return `AC-${lead}-${surname}-triage.${extension}`;
+}
+
+export function prepareAiSuggestions(caseData, aiResult) {
+  const current = normalizeCurrentCase(caseData);
+  const suggestions = [];
+  collectSuggestion(suggestions, current, "leadNumber", aiResult?.lead?.leadNumber);
+  collectSuggestion(suggestions, current, "customerName", aiResult?.lead?.customerName);
+  collectSuggestion(suggestions, current, "address", aiResult?.lead?.address);
+  collectSuggestion(suggestions, current, "contactNumber", aiResult?.lead?.contactNumber);
+  collectSuggestion(suggestions, current, "customerEmail", aiResult?.lead?.customerEmail);
+  collectSuggestion(suggestions, current, "propertyType", aiResult?.lead?.propertyType);
+  collectSuggestion(suggestions, current, "caseDetails.installDate", aiResult?.lead?.installDate);
+  return suggestions;
+}
+
 export function generateAiReviewPackJson(caseData, options = {}) {
   return JSON.stringify(generateAiReviewPack(caseData, options), null, 2);
 }
@@ -660,6 +1285,258 @@ export function sampleCase() {
     wifiDongleRequired: true,
   };
   return triageCase;
+}
+
+function questionDefinition(definition) {
+  return {
+    rationaleConfidence: "confirmed",
+    requiredWhen: [],
+    completeWhen: [],
+    completeMode: "all",
+    scope: "case",
+    ...definition,
+  };
+}
+
+function createDefaultEvidenceStates() {
+  return Object.fromEntries(EVIDENCE_ITEMS.map((item) => [item.id, {
+    state: "missing",
+    notes: "",
+    updatedAt: "",
+  }]));
+}
+
+function normalizeCurrentCase(caseData) {
+  const base = {
+    ...createEmptyCase(),
+    ...caseData,
+    schemaVersion: SCHEMA_VERSION,
+  };
+  base.caseDetails = {
+    quotedPackage: "",
+    indoorUnitCount: Math.max(1, Number(base.rooms?.length || 1)),
+    planningStatus: "",
+    installDate: "",
+    ...(base.caseDetails ?? {}),
+  };
+  base.evidenceStates = {
+    ...createDefaultEvidenceStates(),
+    ...(base.evidenceStates ?? {}),
+  };
+  base.answers = base.answers ?? {};
+  base.indoorUnits = Array.isArray(base.indoorUnits) && base.indoorUnits.length ? base.indoorUnits : migrateIndoorUnits(base);
+  base.outdoorUnit = { ...createEmptyOutdoorUnit(), ...(base.outdoorUnit ?? migrateOutdoorUnit(base)) };
+  base.electrical = { spareWay: "", visibleEarth: "", notes: "", ...(base.electrical ?? {}) };
+  base.photos = Array.isArray(base.photos) ? base.photos : [];
+  base.reviewRounds = Array.isArray(base.reviewRounds) ? base.reviewRounds : [];
+  base.customerReplies = Array.isArray(base.customerReplies) ? base.customerReplies : [];
+  base.timeline = Array.isArray(base.timeline) ? base.timeline : [];
+  base.aiReview = { suggestions: [], ...(base.aiReview ?? {}) };
+  base.generatedOutputs = base.generatedOutputs ?? {};
+  return base;
+}
+
+function migrateIndoorUnits(caseData) {
+  const rooms = Array.isArray(caseData.rooms) && caseData.rooms.length ? caseData.rooms : [createEmptyRoom()];
+  return rooms.map((room) => ({
+    ...createEmptyIndoorUnit(),
+    id: room.id || cryptoRandomId(),
+    room: room.roomName || room.room || "",
+    roomSize: room.roomSize || "",
+    agreedLocation: room.internalLocation || room.agreedLocation || "",
+    pipeRoute: room.pipeRun || room.pipeRoute || "",
+    trunkingColour: room.trunkingColour || "White",
+    trunkingOther: room.trunkingOther || "",
+    nearestSocket: room.plugLocation || room.nearestSocket || "",
+    notes: room.electricalSupplyNotes || room.notes || "",
+  }));
+}
+
+function migrateOutdoorUnit(caseData) {
+  const outside = caseData.outsideUnit ?? {};
+  return {
+    ...createEmptyOutdoorUnit(),
+    ...(caseData.outdoorUnit ?? {}),
+    location: caseData.outdoorUnit?.location || outside.location || "",
+    mounting: caseData.outdoorUnit?.mounting || outside.mounting || "",
+    clearances: caseData.outdoorUnit?.clearances || outside.clearances || "",
+    access: caseData.outdoorUnit?.access || outside.ladderAccess || "",
+    notes: caseData.outdoorUnit?.notes || outside.notes || "",
+  };
+}
+
+function migrateEvidenceStates(caseData) {
+  const states = createDefaultEvidenceStates();
+  const checklist = caseData.checklist ?? {};
+  setEvidenceState(states, "lead_customer_details", clean(caseData.leadNumber) || clean(caseData.customerName) ? "confirmed" : "missing");
+  setEvidenceState(states, "quote_package", clean(caseData.quotedPackage || caseData.caseDetails?.quotedPackage) || checklist.quoteChecked ? "confirmed" : "missing");
+  setEvidenceState(states, "indoor_unit_locations", checklist.internalUnitLocationChecked || caseData.rooms?.some((room) => clean(room.internalLocation)) ? "confirmed" : "missing");
+  setEvidenceState(states, "indoor_unit_wall_photos", checklist.internalUnitLocationChecked || hasPhotoType(caseData, "indoor_location") ? "confirmed" : "missing");
+  setEvidenceState(states, "outdoor_unit_location", checklist.externalUnitLocationChecked || clean(caseData.outsideUnit?.location) ? "confirmed" : "missing");
+  setEvidenceState(states, "outdoor_unit_photos", checklist.externalUnitLocationChecked || hasPhotoType(caseData, "outdoor_location") ? "confirmed" : "missing");
+  setEvidenceState(states, "pipe_route", checklist.pipeworkChecked || caseData.rooms?.some((room) => clean(room.pipeRun)) ? "confirmed" : "missing");
+  setEvidenceState(states, "consumer_unit_photo", checklist.fuseBoardPhoto || hasPhotoType(caseData, "fuse_board") ? "confirmed" : "missing");
+  setEvidenceState(states, "electrical_evidence", checklist.visibleEarthChecked || checklist.spareFuseChecked ? "confirmed" : "missing");
+  setEvidenceState(states, "nearest_internal_socket", caseData.rooms?.some((room) => clean(room.plugLocation)) ? "confirmed" : "missing");
+  setEvidenceState(states, "access_ladder_requirements", clean(caseData.outsideUnit?.ladderAccess) || checklist.ladderAccessChecked ? "confirmed" : "missing");
+  setEvidenceState(states, "planning_status", clean(caseData.planningDate) || checklist.planningDateConfirmed ? "confirmed" : "missing");
+  setEvidenceState(states, "install_date", clean(caseData.installDate) || checklist.installDateChecked ? "confirmed" : "missing");
+  return { ...states, ...(caseData.evidenceStates ?? {}) };
+}
+
+function setEvidenceState(states, id, state) {
+  if (!states[id]) return;
+  states[id] = { ...states[id], state, updatedAt: states[id].updatedAt || "" };
+}
+
+function mapLegacyStatus(status) {
+  return ({
+    draft: "evidence_review",
+    ai_review_needed: "evidence_review",
+    awaiting_customer: "awaiting_customer",
+    ready: "ready_for_handover",
+    complete: "completed",
+  })[status] || (CASE_STATUSES.includes(status) ? status : "not_started");
+}
+
+function evaluateQuestion(definition, caseData, scopeData = caseData) {
+  const relevant = definition.requiredWhen.length
+    ? conditionsPass(definition.requiredWhen, caseData, scopeData, "all")
+    : true;
+  const complete = relevant
+    ? conditionsPass(definition.completeWhen, caseData, scopeData, definition.completeMode)
+    : false;
+  return {
+    ...definition,
+    relevant,
+    complete,
+  };
+}
+
+function conditionsPass(conditions, caseData, scopeData, mode = "all") {
+  if (!conditions.length) return true;
+  const results = conditions.map((condition) => conditionPass(condition, caseData, scopeData));
+  return mode === "any" ? results.some(Boolean) : results.every(Boolean);
+}
+
+function conditionPass(condition, caseData, scopeData) {
+  if (condition.evidence) {
+    const state = caseData.evidenceStates?.[condition.evidence]?.state;
+    return condition.stateIn?.includes(state);
+  }
+  const value = valueAt(scopeData, condition.field);
+  const legacyValue = condition.legacyField ? valueAt(caseData, condition.legacyField) || valueAt(scopeData, condition.legacyField) : "";
+  const present = Boolean(clean(value) || clean(legacyValue));
+  if (condition.op === "present") return present;
+  if (condition.op === "missing") return !present;
+  if (condition.equals !== undefined) return value === condition.equals;
+  return false;
+}
+
+function valueAt(object, path) {
+  if (!path) return "";
+  return path.split(".").reduce((current, key) => current?.[key], object);
+}
+
+function pushLineSection(sections, title, lines) {
+  const body = compactLines(lines);
+  if (body) sections.push(`${title}:\n${body}`);
+}
+
+function compactLines(lines) {
+  return lines.filter((line) => clean(line)).join("\n");
+}
+
+function lineValue(label, value) {
+  const text = clean(value);
+  return text ? `${label}: ${text}` : "";
+}
+
+function evidenceLabel(caseData, id) {
+  const state = caseData.evidenceStates?.[id]?.state;
+  if (!state || state === "missing") return "";
+  return state.replace(/_/g, " ");
+}
+
+function socketSummary(caseData) {
+  return (caseData.indoorUnits ?? [])
+    .map((unit) => [unit.room, unit.nearestSocket || unit.plugLocation].filter(Boolean).join(": "))
+    .filter(Boolean)
+    .join("; ");
+}
+
+function preferencesSummary(caseData) {
+  return (caseData.indoorUnits ?? [])
+    .map((unit) => [unit.room, unit.trunkingColour === "Other" ? unit.trunkingOther : unit.trunkingColour].filter(Boolean).join(": trunking "))
+    .filter(Boolean)
+    .join("; ");
+}
+
+function formatInternalQuestions(caseData) {
+  const groups = outstandingItems(caseData);
+  return [
+    ...groups.internalTechnicalClarification,
+    ...groups.bgAdminIssue,
+    ...groups.surveyorReview,
+  ].map((question) => `- ${question.internalLabel}: ${question.why}`).join("\n");
+}
+
+function importLegacyReviewPack(pack) {
+  return {
+    ...createEmptyCase(),
+    leadNumber: pack.lead?.leadNumber || "",
+    customerName: pack.lead?.customerName || "",
+    address: pack.lead?.address || "",
+    contactNumber: pack.lead?.contactNumber || "",
+    customerEmail: pack.lead?.customerEmail || "",
+    sourceDetails: pack.lead?.pastedJobDetails || "",
+    propertyType: pack.lead?.propertyType || "",
+    installDate: pack.lead?.installDate || "",
+    planningDate: pack.lead?.planningDate || "",
+    rooms: (pack.rooms ?? []).map((room) => ({
+      ...createEmptyRoom(),
+      roomName: room.roomName || "",
+      roomSize: room.roomSizeM2 || "",
+      suggestedUnitSize: room.suggestedUnitSize || "",
+      internalLocation: room.internalLocation || "",
+      pipeRun: room.pipeRun || "",
+      trunkingColour: room.trunkingColour || "White",
+      plugLocation: room.plugLocation || "",
+      electricalSupplyNotes: room.electricalSupplyNotes || "",
+      wifiDongleRequired: Boolean(room.wifiDongleRequired),
+    })),
+    outsideUnit: pack.outsideUnit ?? createEmptyOutsideUnit(),
+    photos: (pack.photoManifest ?? []).map((photo) => ({
+      id: photo.id || cryptoRandomId(),
+      name: photo.fileName || "",
+      label: photo.label || "",
+      type: photo.type || "other",
+      notes: photo.notes || "",
+      requestedAnnotation: photo.requestedAnnotation || "",
+      marks: [],
+    })),
+    customerReplies: pack.customerReplies ?? [],
+  };
+}
+
+function collectSuggestion(suggestions, caseData, path, proposedValue) {
+  const value = clean(proposedValue);
+  if (!value) return;
+  const current = clean(valueAt(caseData, path));
+  if (current && current !== value) {
+    suggestions.push({
+      id: cryptoRandomId(),
+      path,
+      currentValue: current,
+      proposedValue: value,
+      status: "pending",
+      requiresAcceptance: true,
+    });
+  }
+}
+
+function safeNamePart(value) {
+  return clean(value).replace(/[^a-z0-9]+/gi, "-").replace(/^-|-$/g, "") || "case";
 }
 
 function hasPhotoType(caseData, type) {
