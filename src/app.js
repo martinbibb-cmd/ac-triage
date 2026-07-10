@@ -37,6 +37,7 @@ const state = {
 app.addEventListener("click", (event) => {
   const target = event.target.closest("[data-action]");
   if (!target || !app.contains(target) || target.matches("input[type='file']")) return;
+  event.preventDefault();
   handleAction({ currentTarget: target });
 });
 
@@ -498,40 +499,86 @@ async function handleAction(event) {
   if (!active) return;
 
   if (action === "extract-salesforce") {
-    Object.assign(active, extractSalesforceLeadDetails(active.sourceDetails));
+    const extracted = extractSalesforceLeadDetails(active.sourceDetails);
+    Object.assign(active, {
+      leadNumber: extracted.leadNumber || active.leadNumber,
+      customerName: extracted.customerName || active.customerName,
+      address: extracted.address || active.address,
+      contactNumber: extracted.contactNumber || active.contactNumber,
+      customerEmail: extracted.customerEmail || active.customerEmail,
+    });
+    active.caseDetails ||= {};
+    if (extracted.quotedPackage) active.caseDetails.quotedPackage = extracted.quotedPackage;
+    if (extracted.indoorUnitCount) {
+      active.caseDetails.indoorUnitCount = extracted.indoorUnitCount;
+      syncIndoorUnitCount(active, extracted.indoorUnitCount);
+    }
     await persistActive(active);
+    return;
   }
   if (action === "add-indoor-unit") {
     active.indoorUnits.push(createEmptyIndoorUnit());
     active.caseDetails.indoorUnitCount = active.indoorUnits.length;
     await persistActive(active);
+    return;
   }
   if (action === "remove-indoor-unit") {
     active.indoorUnits = active.indoorUnits.filter((unit) => unit.id !== event.currentTarget.dataset.unit);
     active.caseDetails.indoorUnitCount = active.indoorUnits.length;
     await persistActive(active);
+    return;
   }
   if (action === "remove-photo") {
     active.photos = active.photos.filter((photo) => photo.id !== event.currentTarget.dataset.photo);
     await persistActive(active);
+    return;
   }
   if (action === "copy-output") {
     const box = app.querySelector(`[data-output-box="${event.currentTarget.dataset.output}"]`);
     await copyText(box?.value || "");
+    return;
   }
-  if (action === "download-json") downloadPortableJson(active);
-  if (action === "download-zip") await downloadPortableZip(active);
+  if (action === "download-json") {
+    downloadPortableJson(active);
+    return;
+  }
+  if (action === "download-zip") {
+    await downloadPortableZip(active);
+    return;
+  }
   if (action === "mark-completed") {
     active.status = "completed";
     await persistActive(active);
+    return;
   }
-  if (action === "copy-ai-prompt") await copyText(generateAiReviewPrompt());
-  if (action === "copy-ai-pack") await copyText(generateAiReviewPackJson(active));
-  if (action === "download-ai-pack") await downloadAiReviewPack(active);
-  if (action === "import-ai-result") await importAiResult(active);
-  if (action === "accept-ai-suggestion") await resolveAiSuggestion(active, event.currentTarget.dataset.suggestion, true);
-  if (action === "reject-ai-suggestion") await resolveAiSuggestion(active, event.currentTarget.dataset.suggestion, false);
-  if (action === "call-answer") await applyCallAnswer(active, event.currentTarget);
+  if (action === "copy-ai-prompt") {
+    await copyText(generateAiReviewPrompt());
+    return;
+  }
+  if (action === "copy-ai-pack") {
+    await copyText(generateAiReviewPackJson(active));
+    return;
+  }
+  if (action === "download-ai-pack") {
+    await downloadAiReviewPack(active);
+    return;
+  }
+  if (action === "import-ai-result") {
+    await importAiResult(active);
+    return;
+  }
+  if (action === "accept-ai-suggestion") {
+    await resolveAiSuggestion(active, event.currentTarget.dataset.suggestion, true);
+    return;
+  }
+  if (action === "reject-ai-suggestion") {
+    await resolveAiSuggestion(active, event.currentTarget.dataset.suggestion, false);
+    return;
+  }
+  if (action === "call-answer") {
+    await applyCallAnswer(active, event.currentTarget);
+    return;
+  }
 }
 
 async function handleFileAction(event) {

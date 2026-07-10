@@ -502,6 +502,7 @@ export function extractSalesforceLeadDetails(text) {
     /\b([A-Z]{1,2}\d[A-Z\d]?\s*\d[A-Z]{2})\b/i,
   ]).toUpperCase();
   const address = extractAddress(lines, postcode);
+  const quoteProducts = extractQuoteProducts(lines);
 
   return removeEmpty({
     leadNumber,
@@ -510,6 +511,8 @@ export function extractSalesforceLeadDetails(text) {
     contactNumber,
     customerEmail,
     postcode,
+    quotedPackage: quoteProducts.quotedPackage,
+    indoorUnitCount: quoteProducts.indoorUnitCount,
   });
 }
 
@@ -1595,6 +1598,9 @@ function valueAfterLabel(lines, labels) {
 }
 
 function extractAddress(lines, postcode) {
+  const structured = structuredInstallAddress(lines);
+  if (structured) return structured;
+
   const block = addressBlockAfterLabel(lines, ["Customer Address", "Install Address", "Site Address", "Address"]);
   if (block) return block;
 
@@ -1612,6 +1618,36 @@ function extractAddress(lines, postcode) {
     .replace(/^Address\s+/i, "")
     .trim();
   return cleaned || postcode;
+}
+
+function structuredInstallAddress(lines) {
+  const street = valueAfterLabel(lines, ["Install Address Street", "Address Street", "Street"]);
+  const city = valueAfterLabel(lines, ["Install Address City", "Address City", "City"]);
+  const postcode = valueAfterLabel(lines, ["Install Postcode", "Postcode", "Zip"]);
+  return [street, city, postcode].map(clean).filter(Boolean).join(", ");
+}
+
+function extractQuoteProducts(lines) {
+  const products = lines
+    .map((line) => line.match(/^Edit\s+\S+\s+(.+?)\s+\D?[\d,]+\.\d{2}\s+\D?[\d,]+\.\d{2}\s+\D?[\d,]+\.\d{2}\s+(\d+)\b/i))
+    .filter(Boolean)
+    .map((match) => ({
+      description: clean(match[1]),
+      quantity: Number.parseInt(match[2], 10) || 0,
+    }))
+    .filter((item) => item.description && item.quantity > 0);
+
+  const indoorUnitCount = products
+    .filter((item) => /indoor\s+ac\s+unit/i.test(item.description))
+    .reduce((sum, item) => sum + item.quantity, 0);
+  const quotedPackage = products
+    .map((item) => `${item.description} x${item.quantity}`)
+    .join("\n");
+
+  return {
+    quotedPackage,
+    indoorUnitCount: indoorUnitCount || "",
+  };
 }
 
 function addressBlockAfterLabel(lines, labels) {
