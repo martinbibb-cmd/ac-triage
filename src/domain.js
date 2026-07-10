@@ -389,7 +389,7 @@ export function createEmptyIndoorUnit() {
     agreedLocation: "",
     wallConstruction: "",
     pipeRoute: "",
-    trunkingColour: "White",
+    trunkingColour: "",
     trunkingOther: "",
     nearestSocket: "",
     accessDetails: "",
@@ -1403,7 +1403,11 @@ function evaluateQuestion(definition, caseData, scopeData = caseData) {
   const relevant = definition.requiredWhen.length
     ? conditionsPass(definition.requiredWhen, caseData, scopeData, "all")
     : true;
-  const complete = relevant
+  const answerState = caseData.answers?.[definition.key]?.state;
+  const answeredComplete = ["confirmed", "not_applicable"].includes(answerState);
+  const complete = relevant && answeredComplete
+    ? true
+    : relevant
     ? conditionsPass(definition.completeWhen, caseData, scopeData, definition.completeMode)
     : false;
   return {
@@ -1460,7 +1464,11 @@ function evidenceLabel(caseData, id) {
 
 function socketSummary(caseData) {
   return (caseData.indoorUnits ?? [])
-    .map((unit) => [unit.room, unit.nearestSocket || unit.plugLocation].filter(Boolean).join(": "))
+    .map((unit) => {
+      const socket = clean(unit.nearestSocket || unit.plugLocation);
+      if (!socket) return "";
+      return [unit.room, socket].filter(Boolean).join(": ");
+    })
     .filter(Boolean)
     .join("; ");
 }

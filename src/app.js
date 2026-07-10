@@ -34,6 +34,12 @@ const state = {
   screen: "intake",
 };
 
+app.addEventListener("click", (event) => {
+  const target = event.target.closest("[data-action]");
+  if (!target || !app.contains(target) || target.matches("input[type='file']")) return;
+  handleAction({ currentTarget: target });
+});
+
 init();
 
 async function init() {
@@ -206,7 +212,7 @@ function evidenceScreen(active) {
         ${textArea("outdoor", "notes", "Notes", active.outdoorUnit?.notes)}
       </div>
     </section>
-    <section class="panel">
+    <section class="panel questions-panel">
       <h2>Relevant questions now</h2>
       ${questionList(active, evaluateQuestions(active))}
     </section>
@@ -441,8 +447,6 @@ function bindEvents() {
   app.querySelectorAll("[data-action]").forEach((element) => {
     if (element.type === "file") {
       element.addEventListener("change", handleFileAction);
-    } else {
-      element.addEventListener("click", handleAction);
     }
   });
   app.querySelectorAll("[data-field]").forEach((field) => {
@@ -566,7 +570,8 @@ async function updateCaseField(event) {
   const active = selectedCase();
   if (!active) return;
   active[event.target.dataset.field] = event.target.value;
-  await persistActive(active, false);
+  await persistActive(active, event.type === "change");
+  if (event.type === "input") renderLiveGuidance(active);
 }
 
 async function updateCaseDetail(event) {
@@ -577,7 +582,8 @@ async function updateCaseDetail(event) {
   const value = field === "indoorUnitCount" ? Math.max(1, Number(event.target.value) || 1) : event.target.value;
   active.caseDetails[field] = value;
   if (field === "indoorUnitCount") syncIndoorUnitCount(active, value);
-  await persistActive(active, field === "indoorUnitCount");
+  await persistActive(active, field === "indoorUnitCount" || event.type === "change");
+  if (event.type === "input" && field !== "indoorUnitCount") renderLiveGuidance(active);
 }
 
 async function updateEvidenceState(event) {
@@ -602,7 +608,8 @@ async function updateIndoorUnit(event) {
   const unit = active.indoorUnits.find((item) => item.id === event.target.dataset.unit);
   if (!unit) return;
   unit[event.target.dataset.indoorField] = event.target.value;
-  await persistActive(active, false);
+  await persistActive(active, event.type === "change");
+  if (event.type === "input") renderLiveGuidance(active);
 }
 
 async function updateOutdoorUnit(event) {
@@ -610,7 +617,8 @@ async function updateOutdoorUnit(event) {
   if (!active) return;
   active.outdoorUnit ||= {};
   active.outdoorUnit[event.target.dataset.outdoorField] = event.target.value;
-  await persistActive(active, false);
+  await persistActive(active, event.type === "change");
+  if (event.type === "input") renderLiveGuidance(active);
 }
 
 async function updatePhoto(event) {
@@ -690,6 +698,31 @@ async function persistActive(active, rerender = true) {
   const saved = await saveCase(active);
   state.cases = state.cases.map((item) => item.id === saved.id ? saved : item);
   if (rerender) render();
+}
+
+function renderLiveGuidance(active) {
+  active.completionStatus = calculateCompletionStatus(active);
+  const status = app.querySelector(".status-strip");
+  if (status) {
+    status.innerHTML = `
+      <div>
+        <p class="eyebrow">Current status</p>
+        <h2>${escapeHtml(statusLabel(active.completionStatus.status))}</h2>
+      </div>
+      <div>
+        <p class="eyebrow">Next action</p>
+        <h2>${escapeHtml(active.completionStatus.nextAction)}</h2>
+      </div>
+      <progress value="${completedQuestionCount(active)}" max="${Math.max(1, evaluateQuestions(active).length)}"></progress>
+    `;
+  }
+  const questions = app.querySelector(".questions-panel");
+  if (questions) {
+    questions.innerHTML = `
+      <h2>Relevant questions now</h2>
+      ${questionList(active, evaluateQuestions(active))}
+    `;
+  }
 }
 
 function syncIndoorUnitCount(active, count) {

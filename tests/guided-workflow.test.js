@@ -82,6 +82,7 @@ test("Salesforce handover omits empty headings and invented values", () => {
 
   assert.match(handover, /Lead/);
   assert.doesNotMatch(handover, /Outdoor unit:/);
+  assert.doesNotMatch(handover, /relevant socket\/location evidence/);
   assert.doesNotMatch(handover, /undefined|null|TBC|To confirm/);
 });
 
@@ -153,6 +154,27 @@ test("AI suggestions cannot silently overwrite confirmed answers", () => {
   assert.equal(triageCase.leadNumber, "50773906");
   assert.deepEqual(suggestions.map((item) => item.path), ["leadNumber"]);
   assert.equal(suggestions[0].requiresAcceptance, true);
+});
+
+test("customer call answered state completes scoped deterministic questions", () => {
+  const triageCase = createEmptyCase();
+  triageCase.indoorUnits[0].id = "unit-1";
+  triageCase.indoorUnits[0].room = "Lounge";
+  triageCase.indoorUnits[0].agreedLocation = "Rear wall";
+
+  const pipeQuestion = evaluateQuestions(triageCase).find((question) => question.id === "indoor.pipe_route");
+  assert.equal(pipeQuestion.complete, false);
+
+  triageCase.answers[pipeQuestion.key] = {
+    state: "confirmed",
+    value: "Straight out through rear wall",
+    notes: "Answered on call",
+    source: "customer_call",
+    updatedAt: "2026-07-10T10:00:00.000Z",
+  };
+
+  const updated = evaluateQuestions(triageCase).find((question) => question.id === "indoor.pipe_route");
+  assert.equal(updated.complete, true);
 });
 
 function createCompleteCase() {
