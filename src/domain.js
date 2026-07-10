@@ -477,6 +477,8 @@ export function extractSalesforceLeadDetails(text) {
     .filter(Boolean);
   const joined = lines.join("\n");
   const titleLine = lines.find((line) => /CHI Lead[-:\s]/i.test(line) && /\d{6,}/.test(line)) || "";
+  const chiLeadValue = valueAfterLabel(lines, ["CHI Lead Name"]) || valueAfterExactLabel(lines, "CHI Lead");
+  const chiLeadSource = titleLine || chiLeadValue || joined;
 
   const leadNumber = firstMatch(joined, [
     /CHI Lead[-:\s]*(\d{6,})/i,
@@ -484,35 +486,47 @@ export function extractSalesforceLeadDetails(text) {
     /Lead Number\s*(\d{6,})/i,
     /\bLead\s*#?\s*(\d{6,})/i,
   ]) || valueAfterLabel(lines, ["CHI Lead Num", "CHI Lead Number", "Lead Number"]);
-  const customerName = cleanName(firstMatch(joined, [
+  const customerName = cleanName(firstMatch(chiLeadSource, [
+    /\d{6,}\s*-\s*([A-Z][^-]+?)\s*-\s*[A-Z]{1,2}\d[A-Z\d]?\s*\d[A-Z]{2}/i,
+  ]) || firstMatch(joined, [
     /\d{6,}\s*-\s*([A-Z][^-]+?)\s*-\s*[A-Z]{1,2}\d[A-Z\d]?\s*\d[A-Z]{2}/i,
     /Customer Name\s+(.+)/i,
     /Contact Name\s+(.+)/i,
     /Name\s+((?:Mr|Mrs|Miss|Ms|Dr)\.?\s+.+)/i,
   ]) || valueAfterLabel(lines, ["Customer Name", "Contact Name", "Name"]));
-  const customerEmail = valueAfterLabel(lines, ["Customer Email", "Email"]) || firstMatch(joined, [
+  const customerEmail = valueAfterLabel(lines, ["Customer Email Address", "Customer Email", "Comms Email Field", "Email"]) || firstMatch(joined, [
     /([A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,})/i,
   ]);
-  const contactNumber = normalisePhone(valueAfterLabel(lines, ["Mobile Phone", "Phone", "Contact Number", "Customer Phone"]) || firstMatch(joined, [
+  const contactNumber = normalisePhone(valueAfterLabel(lines, ["Customer Mobile Phone", "Mobile Phone", "Home Phone", "Work Phone", "Phone", "Contact Number", "Customer Phone"]) || firstMatch(joined, [
     /(?:Mobile Phone|Phone|Contact Number|Customer Phone)\s+(\+?44\s?\d[\d\s]{8,}|0\d[\d\s]{8,})/i,
     /(\+?44\s?7\d[\d\s]{7,}|07\d[\d\s]{8,})/,
     /(\+?44\s?[123]\d[\d\s]{8,}|0[123]\d[\d\s]{8,})/,
   ]));
-  const postcode = firstMatch(titleLine || joined, [
+  const postcode = (firstMatch(chiLeadSource, [
     /\b([A-Z]{1,2}\d[A-Z\d]?\s*\d[A-Z]{2})\b/i,
-  ]).toUpperCase();
+  ]) || firstMatch(joined, [
+    /\b([A-Z]{1,2}\d[A-Z\d]?\s*\d[A-Z]{2})\b/i,
+  ])).toUpperCase();
   const address = extractAddress(lines, postcode);
   const quoteProducts = extractQuoteProducts(lines);
+  const jobElements = extractJobElements(lines);
+  const quotedPackage = quoteProducts.quotedPackage || jobElements.quotedPackage;
+  const indoorUnitCount = quoteProducts.indoorUnitCount || jobElements.indoorUnitCount;
 
   return removeEmpty({
+    jobNumber: firstMatch(joined, [/\b(JOB-\d+)\b/i]) || valueAfterLabel(lines, ["Job Number"]),
     leadNumber,
     customerName,
     address,
     contactNumber,
     customerEmail,
     postcode,
-    quotedPackage: quoteProducts.quotedPackage,
-    indoorUnitCount: quoteProducts.indoorUnitCount,
+    quotedPackage,
+    indoorUnitCount,
+    jobStatus: valueAfterLabel(lines, ["Status"]),
+    jobSubStatus: valueAfterLabel(lines, ["Sub Status"]),
+    quoteReference: valueAfterLabel(lines, ["Quote"]),
+    paymentMethod: valueAfterLabel(lines, ["Payment Method"]),
   });
 }
 
@@ -1597,15 +1611,24 @@ function valueAfterLabel(lines, labels) {
   return "";
 }
 
+function valueAfterExactLabel(lines, label) {
+  for (let index = 0; index < lines.length; index += 1) {
+    if (clean(lines[index]).toLowerCase() !== label.toLowerCase()) continue;
+    const next = clean(lines[index + 1]);
+    if (next && !looksLikeFieldLabel(next)) return next;
+  }
+  return "";
+}
+
 function extractAddress(lines, postcode) {
   const structured = structuredInstallAddress(lines);
   if (structured) return structured;
 
-  const block = addressBlockAfterLabel(lines, ["Customer Address", "Install Address", "Site Address", "Address"]);
+  const block = addressBlockAfterLabel(lines, ["Customer Address", "Installation Address", "Install Address", "Site Address", "Address"]);
   if (block) return block;
 
   const labelled = firstMatch(lines.join("\n"), [
-    /(?:Customer Address|Install Address|Site Address|Address)\s+(.+)/i,
+    /(?:Customer Address|Installation Address|Install Address|Site Address|Address)\s+(.+)/i,
   ]);
   if (labelled && !looksLikeNameOrEmail(labelled)) return labelled;
 
@@ -1650,6 +1673,30 @@ function extractQuoteProducts(lines) {
   };
 }
 
+function extractJobElements(lines) {
+  const counts = new Map();
+  for (const line of lines) {
+    const match = line.match(/^Edit\s+JE-\d+\s+(.+?)\s+(?:C[A-Z0-9]+|P\d+)\s+Work\b/i);
+    if (!match) continue;
+    const description = clean(match[1]);
+    if (!description) continue;
+    counts.set(description, (counts.get(description) || 0) + 1);
+  }
+
+  const products = [...counts.entries()].map(([description, quantity]) => ({ description, quantity }));
+  const indoorUnitCount = products
+    .filter((item) => /indoor\s+unit/i.test(item.description))
+    .reduce((sum, item) => sum + item.quantity, 0);
+  const quotedPackage = products
+    .map((item) => `${item.description} x${item.quantity}`)
+    .join("\n");
+
+  return {
+    quotedPackage,
+    indoorUnitCount: indoorUnitCount || "",
+  };
+}
+
 function addressBlockAfterLabel(lines, labels) {
   for (let index = 0; index < lines.length; index += 1) {
     for (const label of labels) {
@@ -1676,7 +1723,7 @@ function looksLikeNameOrEmail(value) {
 }
 
 function looksLikeFieldLabel(value) {
-  return /^(CHI Lead Num|Customer Name|Contact Name|Customer Address|Install Address|Site Address|Mobile Phone|Phone|Customer Email|Email|Status|Stage|Owner|Created|Updated|Lead Source)\b/i.test(value);
+  return /^(CHI Lead|CHI Lead Num|Customer Name|Contact Name|Customer Address|Installation Address|Install Address|Site Address|Mobile Phone|Home Phone|Work Phone|Phone|Customer Mobile Phone|Customer Email Address|Customer Email|Email|Status|Sub Status|Stage|Owner|Created|Updated|Lead Source|Quote|Payment Method|District|Region|HSA Name|CDM Name)\b/i.test(value);
 }
 
 function escapeRegExp(value) {

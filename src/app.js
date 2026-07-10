@@ -165,6 +165,10 @@ function intakeScreen(active) {
         <label>Number of indoor units<input inputmode="numeric" data-case-detail="indoorUnitCount" value="${attr(active.caseDetails?.indoorUnitCount || active.indoorUnits?.length || 1)}"></label>
         <label>Planning status<input data-case-detail="planningStatus" value="${attr(active.caseDetails?.planningStatus || "")}"></label>
         <label>Install date<input data-case-detail="installDate" value="${attr(active.caseDetails?.installDate || "")}"></label>
+        <label>Job number<input data-case-detail="jobNumber" value="${attr(active.caseDetails?.jobNumber || "")}"></label>
+        <label>Job status<input data-case-detail="jobStatus" value="${attr(active.caseDetails?.jobStatus || "")}"></label>
+        <label>Job sub status<input data-case-detail="jobSubStatus" value="${attr(active.caseDetails?.jobSubStatus || "")}"></label>
+        <label>Quote reference<input data-case-detail="quoteReference" value="${attr(active.caseDetails?.quoteReference || "")}"></label>
       </div>
     </section>
     <section class="panel">
@@ -509,6 +513,11 @@ async function handleAction(event) {
     });
     active.caseDetails ||= {};
     if (extracted.quotedPackage) active.caseDetails.quotedPackage = extracted.quotedPackage;
+    if (extracted.jobNumber) active.caseDetails.jobNumber = extracted.jobNumber;
+    if (extracted.jobStatus) active.caseDetails.jobStatus = extracted.jobStatus;
+    if (extracted.jobSubStatus) active.caseDetails.jobSubStatus = extracted.jobSubStatus;
+    if (extracted.quoteReference) active.caseDetails.quoteReference = extracted.quoteReference;
+    if (extracted.paymentMethod) active.caseDetails.paymentMethod = extracted.paymentMethod;
     if (extracted.indoorUnitCount) {
       active.caseDetails.indoorUnitCount = extracted.indoorUnitCount;
       syncIndoorUnitCount(active, extracted.indoorUnitCount);
