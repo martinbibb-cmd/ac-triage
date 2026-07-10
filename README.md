@@ -1,47 +1,72 @@
 # Air Con Triage
 
-A simple browser app for round-tripping air con triage packs through GPT/Gemini.
+Air Con Triage is a local-first guided workflow for air-conditioning case intake, evidence review, customer calls, and Salesforce handover notes.
 
-It is designed for iPad/iPhone use through Safari and can be published directly with GitHub Pages. There is no login, cloud sync, Salesforce integration, or backend in v1. Cases and photos are stored locally in the browser using IndexedDB for convenience, but offline mode is not a product requirement.
+The form is the primary intelligence. The app asks what evidence is already available, narrows the remaining questions deterministically, and keeps AI review as an optional support action under **Advanced / AI review**.
 
-## Features
+## Workflow
 
-- Paste raw Salesforce/job/customer text first
-- The Salesforce source screen can include CHI Lead Details, Contact Information, Payment Information, Portal Details, System Information, Photos, Jobs, Quotes, Finance Applications, Activity History, and lead field history
-- Add Salesforce photos separately with the upload button before creating the AI pack
-- Basic lead/contact fields are extracted from pasted Salesforce text where possible
-- Classic Salesforce label/value rows such as `CHI Lead Num` followed by the number are supported
-- Send the AI prompt plus JSON/photos to GPT/Gemini
-- Paste the AI JSON response back into the app
-- Send the customer message only after the AI response asks for one
-- Copy/SMS/email customer actions use the imported AI customer message when present
-- Customer messages are tailored to missing customer-solvable details, including specific indoor/outdoor/electrical photo requests
-- Add the customer text reply and upload any new photos separately, then create the next AI pack
-- Maintain a read-only timeline of Salesforce import, photo uploads, AI reviews, customer replies, and handover readiness
-- Copy a clean compact JSON AI review pack
-- Copy full JSON with embedded compressed images when needed
-- Download review pack ZIP with `review-pack.json` and photo files
-- Copy a strict AI review prompt for GPT/Gemini
-- Populate extracted lead, room, outside unit, customer message, and handover fields from AI JSON
-- Apply structured AI photo annotations when the AI returns normalized coordinates
-- Preserve multiple AI review rounds per lead
-- Preserve customer replies and newly supplied photo references
-- Show the next action: send customer message, wait for reply, review again, or copy handover to Salesforce
-- Add a customer reply and export the next JSON review pack
-- Keep manual lead/room/outside-unit fields available under advanced edits
-- One-tap customer SMS/email draft for missing data requests
-- Copy short Salesforce-ready handover notes
-- Photos are resized locally before storage to reduce iPad Safari memory pressure
-- Manual photo markup remains available for:
-  - point-to-point pipe route lines
-  - indoor unit boxes
-  - outdoor unit boxes
-  - room outline boxes
-  - text labels
-- Save annotated images
-- Share/export case text
+1. Create a case or import a portable case JSON.
+2. Paste Salesforce text and extract lead/customer details where possible.
+3. Correct case details manually and record quoted package, indoor-unit count, install/planning details, and photos.
+4. Use **Evidence** to mark each evidence category as confirmed, missing, unclear, not applicable, awaiting customer, or awaiting internal clarification.
+5. Use **Customer call** during a live call. It shows only customer-solvable outstanding questions with large quick-action controls.
+6. Use **Outstanding** to separate customer questions, customer photos, internal technical clarification, BG/admin issues, and surveyor review.
+7. Use **Handover** to copy the Salesforce handover note, customer follow-up message, internal questions, and manager completion message.
 
-## Run locally
+The app always surfaces the current status and next action at the top of an open case.
+
+## Local Storage
+
+Cases autosave to IndexedDB in the browser. Photos are resized locally before storage to reduce Safari memory pressure. There is no backend, login, or cloud sync.
+
+IndexedDB data is local to the browser profile and device. iPad/iPhone Safari may remove local site data under storage pressure, so use portable export for important cases.
+
+## Export And Import
+
+The default JSON export is lightweight and versioned:
+
+- schema version
+- case details
+- answers
+- evidence states
+- indoor and outdoor unit records
+- customer replies
+- timeline
+- generated outputs
+- timestamps
+- completion status
+- photo metadata
+
+Full image data is not embedded in the default JSON export.
+
+The ZIP export contains `case.json` plus original photos and annotated photos where present. File names follow the pattern:
+
+- `AC-50773906-Smith-triage.json`
+- `AC-50773906-Smith-triage.zip`
+
+Imported cases are validated through the schema migration path. Older round-trip style cases and review packs are migrated where practical.
+
+## Optional AI Review
+
+AI review is optional. The app remains fully usable without AI.
+
+AI can review the evidence pack, identify possible missing evidence, propose customer wording, and propose photo annotations. AI suggestions that would alter existing confirmed data are stored as pending suggestions and require explicit acceptance.
+
+AI does not determine workflow state, replace the deterministic question engine, or silently overwrite confirmed values.
+
+## Supported Browsers
+
+The app is a static browser app designed for current iPad/iPhone Safari and desktop browsers that support ES modules, IndexedDB, service workers, file inputs, canvas image resizing, and Blob downloads.
+
+Known iPad limitations:
+
+- Local browser storage is not a durable backup.
+- Large photo sets can still hit memory limits despite resizing.
+- Service worker caches may need a browser refresh after deployment.
+- File download/import behavior depends on Safari and iOS file handling.
+
+## Run Locally
 
 ```sh
 npm run serve
@@ -49,18 +74,20 @@ npm run serve
 
 Then open `http://localhost:4173`.
 
+If PowerShell blocks `npm.ps1`, run the static server directly with an available local HTTP server.
+
 ## Test
 
 ```sh
-npm test
+node --test tests/*.test.js
 ```
 
-## Publish with GitHub Pages
+The project uses plain ES modules and Node's built-in test runner. There is no framework or build step.
+
+## Publish With GitHub Pages
 
 1. Push this repo to GitHub.
 2. In the repo settings, open **Pages**.
 3. Set the source to **Deploy from a branch**.
 4. Choose the `main` branch and `/ (root)`.
 5. Save.
-
-The app is static, so no build step is required.
