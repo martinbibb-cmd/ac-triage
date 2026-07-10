@@ -71,6 +71,56 @@ test("extractSalesforceLeadDetails handles Classic Salesforce label value rows",
   assert.equal(extracted.postcode, "SG1 3ND");
 });
 
+test("extractSalesforceLeadDetails handles tabular appointed lead and quote products", () => {
+  const text = `
+    CHI Lead Num
+    50774341
+    Stage
+    Appointed
+    CHI Lead Name
+    50774341 - Stefanie Bryant - GL52 6BD - (WZ1_S10_58)
+
+    GL52 6BD 42 Leighton Road
+    Customer Deceased
+    Customer Name
+    Mrs Stefanie Bryant
+    SC Type
+    Owner
+    Edit Contact Details
+    Stefanie Bryant
+    Home Phone
+    Install Address Street
+    42 Leighton Road
+    Mobile Phone
+    07895315663
+    Install Address City
+    Cheltenham
+    Customer Email
+    stfbryant@yahoo.co.uk
+    Install Postcode
+    GL52 6BD
+
+    Quote Products
+    Action Part Number Product Description Sales Price Gross Total Total Price Ex VAT Quantity ASP Status ASP Removed Lead Time CS Template Section Header
+    Edit CACU0018 Bosch Climate 3200i 3.5kW Indoor AC Unit £3,300.00 £3,300.00 £3,300.00 3 28 Air Conditioning
+    Edit CACU0013 Bosch Climate 5000M 7.9kW (3) Multi Split Outdoor AC Unit £2,650.00 £2,650.00 £2,650.00 1 28 Air Conditioning
+    Edit P978 Additional 5m Pipe Connection (for Bosch Multi-Split installations) £750.00 £750.00 £750.00 3 14 Air Conditioning
+    Edit P944 Bosch Module IP Gateway £117.00 £117.00 £117.00 3 14 Air Conditioning
+  `;
+
+  const extracted = extractSalesforceLeadDetails(text);
+
+  assert.equal(extracted.leadNumber, "50774341");
+  assert.equal(extracted.customerName, "Stefanie Bryant");
+  assert.equal(extracted.contactNumber, "07895315663");
+  assert.equal(extracted.customerEmail, "stfbryant@yahoo.co.uk");
+  assert.equal(extracted.address, "42 Leighton Road, Cheltenham, GL52 6BD");
+  assert.equal(extracted.postcode, "GL52 6BD");
+  assert.equal(extracted.indoorUnitCount, 3);
+  assert.match(extracted.quotedPackage, /Bosch Climate 3200i 3\.5kW Indoor AC Unit x3/);
+  assert.match(extracted.quotedPackage, /Bosch Climate 5000M 7\.9kW \(3\) Multi Split Outdoor AC Unit x1/);
+});
+
 test("generateMissingQuestions only asks for missing handover details", () => {
   const triageCase = createEmptyCase();
   triageCase.installDate = "2026-08-14";
