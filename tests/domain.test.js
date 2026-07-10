@@ -121,6 +121,67 @@ test("extractSalesforceLeadDetails handles tabular appointed lead and quote prod
   assert.match(extracted.quotedPackage, /Bosch Climate 5000M 7\.9kW \(3\) Multi Split Outdoor AC Unit x1/);
 });
 
+test("extractSalesforceLeadDetails handles Salesforce job detail pages", () => {
+  const text = `
+    JOB-3260926
+    Job Detail
+    Status
+    Pending
+    Sub Status
+    Install Date Required
+    Installation Date
+
+    Job Number
+    JOB-3260926
+    Customer Name
+    Mrs Bryant
+    CHI Lead
+    50774341 - Stefanie Bryant - GL52 6BD - (WZ1_S10_58)
+    Quote
+    C507743410_CP
+    Payment Method
+    Finance
+    Hide Section - Contact InfoContact Info
+    Installation Address
+    GL52 6BD 42
+    District
+    4B SEVERN AND AVON
+    Customer Email Address
+    stfbryant@yahoo.co.uk
+    Home Phone
+    07895315663
+    Customer Mobile Phone
+    07895315663
+    Customer Email
+    stfbryant@yahoo.co.uk
+    Job Element
+    Action Job Element ID Description Product ID Type Skill Sub Status Units Code Status Order
+    Edit JE-121431369 7.9kW Climate 5000M Installation CACU0013 Work Mechanical Awaiting Order 3.50 8834 Active
+    Edit JE-121431370 3.5kW 3200i Indoor Unit Installation CACU0018 Work Mechanical Awaiting Order 6.00 8839 Active
+    Edit JE-121431371 3.5kW 3200i Indoor Unit Installation CACU0018 Work Mechanical Awaiting Order 6.00 8839 Active
+    Edit JE-121431372 3.5kW 3200i Indoor Unit Installation CACU0018 Work Mechanical Awaiting Order 6.00 8839 Active
+    Edit JE-121431373 5m Bosch Multi Split System AC Pipework P978 Work Mechanical Awaiting Order 0.01 8842 Active
+    Edit JE-121431374 5m Bosch Multi Split System AC Pipework P978 Work Mechanical Awaiting Order 0.01 8842 Active
+    Edit JE-121431375 5m Bosch Multi Split System AC Pipework P978 Work Mechanical Awaiting Order 0.01 8842 Active
+  `;
+
+  const extracted = extractSalesforceLeadDetails(text);
+
+  assert.equal(extracted.jobNumber, "JOB-3260926");
+  assert.equal(extracted.leadNumber, "50774341");
+  assert.equal(extracted.customerName, "Stefanie Bryant");
+  assert.equal(extracted.address, "GL52 6BD 42");
+  assert.equal(extracted.contactNumber, "07895315663");
+  assert.equal(extracted.customerEmail, "stfbryant@yahoo.co.uk");
+  assert.equal(extracted.jobStatus, "Pending");
+  assert.equal(extracted.jobSubStatus, "Install Date Required");
+  assert.equal(extracted.quoteReference, "C507743410_CP");
+  assert.equal(extracted.paymentMethod, "Finance");
+  assert.equal(extracted.indoorUnitCount, 3);
+  assert.match(extracted.quotedPackage, /3\.5kW 3200i Indoor Unit Installation x3/);
+  assert.match(extracted.quotedPackage, /7\.9kW Climate 5000M Installation x1/);
+});
+
 test("generateMissingQuestions only asks for missing handover details", () => {
   const triageCase = createEmptyCase();
   triageCase.installDate = "2026-08-14";
