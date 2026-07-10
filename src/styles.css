@@ -77,6 +77,14 @@ button.active {
   line-height: 1;
 }
 
+.top-actions {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
 .eyebrow {
   margin: 0 0 6px;
   color: var(--brand-2);
@@ -185,6 +193,43 @@ button.active {
 
 .next-action-panel h2 {
   margin-bottom: 0;
+}
+
+.status-strip {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) 180px;
+  gap: 12px;
+  align-items: center;
+  border: 1px solid var(--brand-2);
+  border-radius: 8px;
+  background: #ffffff;
+  box-shadow: inset 6px 0 0 var(--brand-2);
+  padding: 16px;
+}
+
+.status-strip h2 {
+  margin: 0;
+  font-size: 1.25rem;
+}
+
+.status-strip progress {
+  width: 100%;
+  height: 16px;
+  accent-color: var(--brand-2);
+}
+
+.screen-tabs {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(135px, 1fr));
+  gap: 8px;
+  padding: 8px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #ffffff;
+}
+
+.screen-tabs button {
+  width: 100%;
 }
 
 .round-trip-panel {
@@ -380,6 +425,117 @@ textarea {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(230px, 1fr));
   gap: 10px;
+}
+
+.evidence-grid,
+.outstanding-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+  gap: 12px;
+}
+
+.evidence-card,
+.outstanding-card,
+.question-card,
+.call-question,
+.copy-box {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #f9fbfc;
+  padding: 12px;
+}
+
+.evidence-card textarea {
+  min-height: 70px;
+  margin-top: 8px;
+}
+
+.question-list {
+  display: grid;
+  gap: 10px;
+}
+
+.question-card {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 12px;
+  align-items: start;
+}
+
+.question-card p {
+  margin: 6px 0;
+}
+
+.question-card small,
+.call-question small,
+.outstanding-card small {
+  display: block;
+  color: var(--muted);
+  line-height: 1.35;
+}
+
+.question-card span {
+  border-radius: 999px;
+  background: #e8eef2;
+  color: #33424f;
+  padding: 4px 8px;
+  font-size: 0.82rem;
+  font-weight: 850;
+  white-space: nowrap;
+}
+
+.question-card.complete {
+  border-color: #b8dfd0;
+  background: #f2faf7;
+}
+
+.call-panel {
+  display: grid;
+  gap: 16px;
+}
+
+.call-question {
+  display: grid;
+  gap: 10px;
+}
+
+.call-question h3 {
+  font-size: 1.35rem;
+}
+
+.call-question textarea {
+  min-height: 72px;
+}
+
+.call-actions {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(155px, 1fr));
+  gap: 10px;
+}
+
+.call-actions button {
+  min-height: 58px;
+}
+
+.outstanding-card h3 {
+  margin: 0 0 10px;
+}
+
+.outstanding-card ul {
+  display: grid;
+  gap: 10px;
+  margin: 0;
+  padding-left: 20px;
+}
+
+.output-screen {
+  display: grid;
+  gap: 14px;
+}
+
+.copy-box textarea {
+  min-height: 150px;
+  font: 0.98rem/1.45 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
 }
 
 .check-tile {
@@ -654,7 +810,8 @@ tbody th {
   .grid.two,
   .grid.three,
   .upload-row,
-  .reference-grid {
+  .reference-grid,
+  .status-strip {
     grid-template-columns: 1fr;
   }
 
@@ -673,7 +830,9 @@ tbody th {
   }
 
   .toolbar button,
-  .topbar button {
+  .topbar button,
+  .top-actions,
+  .top-actions .file-button {
     width: 100%;
   }
 }

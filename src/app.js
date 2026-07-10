@@ -1,26 +1,24 @@
 import {
-  CHECKLIST,
-  AI_DECISIONS,
   CASE_STATUSES,
-  JOB_STAGES,
-  NEXT_ACTIONS,
+  EVIDENCE_ITEMS,
+  EVIDENCE_STATES,
   PHOTO_TYPES,
-  REFERENCE_DATA,
-  TRUNKING_COLOURS,
-  WORKFLOW_STEPS,
-  createEmptyCase,
-  createEmptyCustomerReply,
-  createEmptyReviewRound,
-  createEmptyRoom,
-  extractSalesforceLeadDetails,
+  QUESTION_DEFINITIONS,
   buildCaseTimeline,
-  generateCustomerRequestMessage,
+  calculateCompletionStatus,
+  caseExportFileName,
+  createEmptyCase,
+  createEmptyIndoorUnit,
+  evaluateQuestions,
+  exportPortableCase,
+  extractSalesforceLeadDetails,
   generateAiReviewPackJson,
   generateAiReviewPrompt,
-  generateHandoverNotes,
-  generateMissingQuestions,
-  generateReferenceText,
-  suggestUnitSize,
+  generateOutputs,
+  importPortableCase,
+  migrateCaseToCurrent,
+  outstandingItems,
+  prepareAiSuggestions,
 } from "./domain.js";
 import { deleteCase, loadCases, saveCase } from "./storage.js";
 
@@ -28,27 +26,20 @@ const app = document.querySelector("#app");
 const PHOTO_MAX_EDGE = 1600;
 const THUMB_MAX_EDGE = 420;
 const PHOTO_QUALITY = 0.82;
+const SCREENS = ["intake", "evidence", "call", "outstanding", "handover", "advanced"];
 
 const state = {
   cases: [],
   selectedId: null,
-  markup: {
-    photoId: null,
-    tool: "line",
-    points: [],
-    labelText: "Label",
-  },
+  screen: "intake",
 };
 
 init();
 
 async function init() {
-  app.innerHTML = `<div class="empty"><h2>Loading cases</h2><p>Checking local photo storage...</p></div>`;
-  if ("serviceWorker" in navigator) {
-    navigator.serviceWorker.register("./service-worker.js");
-  }
-  state.cases = await loadCases();
-  state.cases = await compactCasePhotos(state.cases);
+  app.innerHTML = `<div class="empty"><h2>Loading cases</h2><p>Checking local storage...</p></div>`;
+  if ("serviceWorker" in navigator) navigator.serviceWorker.register("./service-worker.js");
+  state.cases = (await loadCases()).map(migrateCaseToCurrent);
   state.selectedId = state.cases[0]?.id ?? null;
   render();
 }
@@ -62,10 +53,16 @@ function render() {
   app.innerHTML = `
     <header class="topbar">
       <div>
-        <p class="eyebrow">AI review pack builder</p>
-        <h1>Air Con Triage Pack Builder</h1>
+        <p class="eyebrow">Local-first guided workflow</p>
+        <h1>Air Con Triage</h1>
       </div>
-      <button class="primary" data-action="new-case">New Case</button>
+      <div class="top-actions">
+        <label class="file-button">
+          Import case
+          <input type="file" accept="application/json,.json" data-action="import-case">
+        </label>
+        <button class="primary" data-action="new-case">New Case</button>
+      </div>
     </header>
     <section class="layout">
       <aside class="case-list">
@@ -73,7 +70,7 @@ function render() {
         ${state.cases.map(caseCard).join("") || `<p class="muted">No cases yet.</p>`}
       </aside>
       <section class="workspace">
-        ${active ? caseEditor(active) : emptyState()}
+        ${active ? caseWorkspace(active) : emptyState()}
       </section>
     </section>
   `;
@@ -81,12 +78,13 @@ function render() {
 }
 
 function caseCard(item) {
+  const completion = calculateCompletionStatus(item);
   const selected = item.id === state.selectedId ? "selected" : "";
   return `
     <button class="case-card ${selected}" data-action="select-case" data-id="${item.id}">
       <strong>${escapeHtml(item.leadNumber || "New lead")}</strong>
       <span>${escapeHtml(item.customerName || "No customer name")}</span>
-      <small>${escapeHtml(item.jobStage)}</small>
+      <small>${escapeHtml(statusLabel(completion.status))}</small>
     </button>
   `;
 }
@@ -95,532 +93,380 @@ function emptyState() {
   return `
     <div class="empty">
       <h2>Start a triage case</h2>
-      <p>Create a case, paste Salesforce text, upload photos separately, then export the AI review pack.</p>
+      <p>Create a case or import a portable triage JSON file.</p>
       <button class="primary" data-action="new-case">New Case</button>
     </div>
   `;
 }
 
-function caseEditor(item) {
+function caseWorkspace(active) {
+  const completion = calculateCompletionStatus(active);
+  active.completionStatus = completion;
+  const outputs = generateOutputs(active);
   return `
-    ${roundTripPanel(item)}
-
-    <details class="advanced-section">
-      <summary>Advanced fields and manual edits</summary>
-      <div class="advanced-body">
-        ${advancedEditor(item)}
+    <section class="status-strip">
+      <div>
+        <p class="eyebrow">Current status</p>
+        <h2>${escapeHtml(statusLabel(completion.status))}</h2>
       </div>
-    </details>
-
-    <div class="toolbar">
-      <button data-action="copy-notes">Copy handover notes</button>
-      <button data-action="copy-form">Copy completed form</button>
-      <button data-action="share-case">Share / export</button>
-      <button class="danger" data-action="delete-case">Delete</button>
-    </div>
-  `;
-}
-
-function roundTripPanel(item) {
-  return `
-    <section class="panel round-trip-panel">
-      <div class="panel-head">
-        <div>
-          <p class="eyebrow">Ordered workflow</p>
-          <h2>Salesforce in -> AI review -> customer message</h2>
-        </div>
+      <div>
+        <p class="eyebrow">Next action</p>
+        <h2>${escapeHtml(completion.nextAction)}</h2>
       </div>
-
-      <div class="workflow-step">
-        <h3>1. Paste Salesforce text</h3>
-        <div class="source-guide">
-          <strong>Useful Salesforce sections:</strong>
-          CHI Lead Details, Contact Information, Payment Information, Portal Details, Source Information,
-          System Information, Photos, Appointments, Notes & Attachments, Jobs, BigMachines Quotes,
-          Finance Applications, Activity History, and CHI Lead Field History.
-        </div>
-        <label>Salesforce text only
-          <textarea class="large-input" data-field="sourceDetails" placeholder="Paste copied text from the Salesforce lead page. Do not paste photos here. Include lead details, contact/address, portal/photo status, job status, quote rows, notes/activity, and field history when available.">${escapeHtml(item.sourceDetails || "")}</textarea>
-        </label>
-      </div>
-
-      <div class="workflow-step">
-        <h3>2. Upload photos separately</h3>
-        <div class="upload-row">
-          <p class="hint">On iPad, photos must be added with this button. Use it for Salesforce screenshots, customer photos, floorplans, and replies with new images.</p>
-          <label class="file-button upload-button">
-            Upload photos / screenshots
-            <input type="file" accept="image/*" multiple data-action="add-photos">
-          </label>
-        </div>
-        <div class="photo-grid">
-          ${item.photos.map(photoCard).join("") || `<p class="muted">No photos added yet.</p>`}
-        </div>
-        ${markupEditor(item)}
-      </div>
-
-      <div class="workflow-step">
-        <h3>3. Send pack to AI</h3>
-        <div class="primary-actions">
-          <button class="primary" data-action="copy-ai-prompt">Copy AI review prompt</button>
-          <button class="primary" data-action="copy-ai-pack">Copy compact JSON</button>
-          <button data-action="copy-full-ai-pack">Copy full JSON with images</button>
-          <button data-action="download-review-pack">Download review pack ZIP</button>
-        </div>
-        <p class="hint">Use compact JSON plus uploaded photos for GPT/Gemini chat. Use full JSON only when the AI/API workflow needs embedded compressed photos.</p>
-      </div>
-
-      <div class="workflow-step">
-        <h3>4. Paste AI JSON response</h3>
-        <label>AI JSON result
-          <textarea class="ai-result-input large-input" placeholder='{"schema":"bg.ac_triage.ai_result.v1","decision":"missing_info","nextAction":"send_customer_message",...}'></textarea>
-        </label>
-        <button class="primary" data-action="import-ai-result">Import AI JSON result</button>
-        <section class="next-action-panel embedded-action">
-          <div>
-            <p class="eyebrow">AI result state</p>
-            <h2>${escapeHtml(nextActionLabel(item.nextAction))}</h2>
-          </div>
-          <div class="grid two">
-            <label>Status
-              <select data-field="status">${options(CASE_STATUSES, item.status || "draft")}</select>
-            </label>
-            <label>Next action
-              <select data-field="nextAction">${options(NEXT_ACTIONS, item.nextAction || "review_again")}</select>
-            </label>
-          </div>
-        </section>
-      </div>
-
-      <div class="workflow-step">
-        <h3>5. Send customer message if AI asks for one</h3>
-        <pre class="message-preview">${escapeHtml(latestCustomerMessage(item) || generateCustomerRequestMessage(item))}</pre>
-        <div class="primary-actions">
-          <button class="primary" data-action="copy-request">Copy customer message</button>
-          <button data-action="sms-customer">Text customer</button>
-          <button data-action="email-customer">Email customer</button>
-        </div>
-      </div>
-
-      <div class="workflow-step">
-        <h3>6. Add customer reply, then review again</h3>
-        <label>Customer reply for next AI round
-          <textarea class="quick-reply-input" placeholder="Paste the customer's text reply here. Add any new photos with the Upload photos button before creating the next AI pack."></textarea>
-        </label>
-        <button data-action="add-quick-customer-reply">Add reply to next JSON</button>
-      </div>
-
-      <div class="workflow-step">
-        <h3>Case timeline</h3>
-        ${timelineView(item)}
-        <div>
-          <h3>Current review JSON preview</h3>
-          <pre class="notes-preview compact-preview">${escapeHtml(generateAiReviewPackJson(item))}</pre>
-        </div>
-      </div>
+      <progress value="${completedQuestionCount(active)}" max="${Math.max(1, evaluateQuestions(active).length)}"></progress>
     </section>
-  `;
-}
-
-function timelineView(item) {
-  const timeline = buildCaseTimeline(item);
-  if (!timeline.length) return `<p class="muted">No timeline events yet.</p>`;
-  return `
-    <ol class="timeline-list">
-      ${timeline.map((event) => `
-        <li>
-          <strong>${escapeHtml(event.summary)}</strong>
-          ${event.at ? `<small>${escapeHtml(formatDateTime(event.at))}</small>` : ""}
-          ${event.decision ? `<span class="timeline-pill">${escapeHtml(event.decision)}</span>` : ""}
-          ${event.detail ? `<p>${escapeHtml(event.detail)}</p>` : ""}
-          ${event.customerMessage ? `<p>${escapeHtml(event.customerMessage)}</p>` : ""}
-          ${event.blockers?.length ? `<p>Blockers: ${escapeHtml(event.blockers.join(" | "))}</p>` : ""}
-        </li>
+    <nav class="screen-tabs" aria-label="Triage screens">
+      ${SCREENS.map((screen) => `
+        <button class="${screen === state.screen ? "active" : ""}" data-action="screen" data-screen="${screen}">
+          ${escapeHtml(screenLabel(screen))}
+        </button>
       `).join("")}
-    </ol>
+    </nav>
+    ${screenView(active, outputs)}
   `;
 }
 
-function advancedEditor(item) {
-  return `
-    <div class="grid two">
-      <section class="panel">
-        <h2>Extracted case details</h2>
-        <label>Lead number<input data-field="leadNumber" value="${attr(item.leadNumber)}"></label>
-        <label>Customer name<input data-field="customerName" value="${attr(item.customerName)}"></label>
-        <label>Address<textarea data-field="address">${escapeHtml(item.address)}</textarea></label>
-        <label>Contact number<input data-field="contactNumber" value="${attr(item.contactNumber)}"></label>
-        <label>Customer email<input type="email" data-field="customerEmail" value="${attr(item.customerEmail)}"></label>
-        <label>Property type<input data-field="propertyType" value="${attr(item.propertyType)}"></label>
-        <label>Job stage
-          <select data-field="jobStage">${options(JOB_STAGES, item.jobStage)}</select>
-        </label>
-        <label>Install date<input data-field="installDate" value="${attr(item.installDate)}"></label>
-        <label>Planning date<input data-field="planningDate" value="${attr(item.planningDate)}"></label>
-      </section>
-
-      <section class="panel">
-        <h2>Customer request</h2>
-        <div class="questions">
-          ${questionList(item)}
-        </div>
-        <div class="action-row">
-          <button data-action="sms-customer">Text customer</button>
-          <button data-action="email-customer">Email customer</button>
-          <button data-action="copy-request">Copy request</button>
-        </div>
-        <pre class="message-preview">${escapeHtml(latestCustomerMessage(item) || generateCustomerRequestMessage(item))}</pre>
-      </section>
-    </div>
-
-    <section class="panel">
-      <div class="panel-head">
-        <h2>AI review history</h2>
-        <button data-action="add-review-round">Add review round</button>
-      </div>
-      <div class="stack">
-        ${(item.reviewRounds ?? []).map(reviewRoundEditor).join("") || `<p class="muted">No AI review pasted yet.</p>`}
-      </div>
-    </section>
-
-    <section class="panel">
-      <div class="panel-head">
-        <h2>Customer replies</h2>
-        <button data-action="add-customer-reply">Add customer reply</button>
-      </div>
-      <div class="stack">
-        ${(item.customerReplies ?? []).map(customerReplyEditor).join("") || `<p class="muted">No customer replies added yet.</p>`}
-      </div>
-    </section>
-
-    <section class="panel">
-      <h2>Fast workflow</h2>
-      <div class="check-grid">
-        ${WORKFLOW_STEPS.map((step) => `
-          <label class="check-tile">
-            <input type="checkbox" data-workflow="${step.id}" ${item.workflow?.[step.id] ? "checked" : ""}>
-            <span>${escapeHtml(step.label)}</span>
-          </label>
-        `).join("")}
-      </div>
-    </section>
-
-    <section class="panel">
-      <h2>Guided checklist</h2>
-      <div class="check-grid">
-        ${CHECKLIST.map((check) => `
-          <label class="check-tile">
-            <input type="checkbox" data-check="${check.id}" ${item.checklist?.[check.id] ? "checked" : ""}>
-            <span>${escapeHtml(check.label)}</span>
-          </label>
-        `).join("")}
-      </div>
-    </section>
-
-    <section class="panel">
-      <div class="panel-head">
-        <h2>Rooms / units</h2>
-        <button data-action="add-room">Add room</button>
-      </div>
-      <div class="rooms">
-        ${item.rooms.map((room, index) => roomEditor(room, index)).join("")}
-      </div>
-    </section>
-
-    <section class="panel">
-      <h2>Outside unit</h2>
-      ${outsideUnitEditor(item.outsideUnit || {})}
-    </section>
-
-    <section class="panel">
-      <div class="panel-head">
-        <h2>Reference</h2>
-        <button data-action="copy-reference">Copy reference</button>
-      </div>
-      ${referencePanel()}
-    </section>
-
-    <section class="panel">
-      <h2>Handover preview</h2>
-      <pre class="notes-preview handover-preview">${escapeHtml(handoverText(item))}</pre>
-    </section>
-  `;
+function screenView(active, outputs) {
+  if (state.screen === "evidence") return evidenceScreen(active);
+  if (state.screen === "call") return callScreen(active);
+  if (state.screen === "outstanding") return outstandingScreen(active);
+  if (state.screen === "handover") return handoverScreen(active, outputs);
+  if (state.screen === "advanced") return advancedScreen(active);
+  return intakeScreen(active);
 }
 
-function roomEditor(room, index) {
-  const size = room.suggestedUnitSize || suggestUnitSize(room.roomSize);
+function intakeScreen(active) {
   return `
-    <article class="room-card" data-room="${room.id}">
+    <section class="panel">
       <div class="panel-head">
-        <h3>Room ${index + 1}</h3>
-        ${index > 0 ? `<button class="danger" data-action="remove-room" data-room="${room.id}">Remove</button>` : ""}
+        <div>
+          <p class="eyebrow">Case intake</p>
+          <h2>Salesforce details and starting evidence</h2>
+        </div>
+        <button data-action="extract-salesforce">Extract from Salesforce text</button>
       </div>
-      <div class="grid three">
-        <label>Room name<input data-room-field="roomName" data-room="${room.id}" value="${attr(room.roomName)}"></label>
-        <label>Room size m2<input inputmode="decimal" data-room-field="roomSize" data-room="${room.id}" value="${attr(room.roomSize)}"></label>
-        <label>Suggested unit size
-          <select data-room-field="suggestedUnitSize" data-room="${room.id}">
-            ${options(["", "SMALL", "MED", "LARGE"], size)}
-          </select>
-        </label>
-      </div>
-      <div class="grid two">
-        <label>Internal unit location<textarea data-room-field="internalLocation" data-room="${room.id}">${escapeHtml(room.internalLocation)}</textarea></label>
-        <label>Pipe run<textarea data-room-field="pipeRun" data-room="${room.id}">${escapeHtml(room.pipeRun)}</textarea></label>
-        <label>Electrical supply notes<textarea data-room-field="electricalSupplyNotes" data-room="${room.id}">${escapeHtml(room.electricalSupplyNotes)}</textarea></label>
-      </div>
-      <div class="grid three">
-        <label>Trunking colour
-          <select data-room-field="trunkingColour" data-room="${room.id}">
-            ${options(TRUNKING_COLOURS, room.trunkingColour)}
-          </select>
-        </label>
-        <label>Other colour<input data-room-field="trunkingOther" data-room="${room.id}" value="${attr(room.trunkingOther)}"></label>
-        <label>Plug location<input data-room-field="plugLocation" data-room="${room.id}" value="${attr(room.plugLocation)}"></label>
-      </div>
-      <label class="check-tile inline">
-        <input type="checkbox" data-room-field="wifiDongleRequired" data-room="${room.id}" ${room.wifiDongleRequired ? "checked" : ""}>
-        <span>Wi-Fi dongle required</span>
+      <label>Salesforce text
+        <textarea class="large-input" data-field="sourceDetails" placeholder="Paste copied Salesforce lead text.">${escapeHtml(active.sourceDetails || "")}</textarea>
       </label>
+      <div class="grid two">
+        <label>Lead number<input data-field="leadNumber" value="${attr(active.leadNumber)}"></label>
+        <label>Customer name<input data-field="customerName" value="${attr(active.customerName)}"></label>
+        <label>Phone<input data-field="contactNumber" value="${attr(active.contactNumber)}"></label>
+        <label>Email<input type="email" data-field="customerEmail" value="${attr(active.customerEmail)}"></label>
+        <label class="span-two">Address<textarea data-field="address">${escapeHtml(active.address || "")}</textarea></label>
+        <label>Quoted package<input data-case-detail="quotedPackage" value="${attr(active.caseDetails?.quotedPackage || "")}"></label>
+        <label>Number of indoor units<input inputmode="numeric" data-case-detail="indoorUnitCount" value="${attr(active.caseDetails?.indoorUnitCount || active.indoorUnits?.length || 1)}"></label>
+        <label>Planning status<input data-case-detail="planningStatus" value="${attr(active.caseDetails?.planningStatus || "")}"></label>
+        <label>Install date<input data-case-detail="installDate" value="${attr(active.caseDetails?.installDate || "")}"></label>
+      </div>
+    </section>
+    <section class="panel">
+      <div class="panel-head">
+        <h2>Existing photos</h2>
+        <label class="file-button upload-button">
+          Upload photos
+          <input type="file" accept="image/*" multiple data-action="add-photos">
+        </label>
+      </div>
+      <div class="photo-grid">
+        ${(active.photos ?? []).map(photoCard).join("") || `<p class="muted">No photos added yet.</p>`}
+      </div>
+    </section>
+  `;
+}
+
+function evidenceScreen(active) {
+  return `
+    <section class="panel">
+      <div class="panel-head">
+        <div>
+          <p class="eyebrow">Evidence inventory</p>
+          <h2>What do we already have?</h2>
+        </div>
+      </div>
+      <div class="evidence-grid">
+        ${EVIDENCE_ITEMS.map((item) => evidenceItem(active, item)).join("")}
+      </div>
+    </section>
+    <section class="panel">
+      <div class="panel-head">
+        <h2>Indoor units</h2>
+        <button data-action="add-indoor-unit">Add indoor unit</button>
+      </div>
+      <div class="stack">${(active.indoorUnits ?? []).map(indoorUnitEditor).join("")}</div>
+    </section>
+    <section class="panel">
+      <h2>Outdoor unit</h2>
+      <div class="grid two">
+        ${textArea("outdoor", "location", "Position", active.outdoorUnit?.location)}
+        ${textArea("outdoor", "mounting", "Mounting", active.outdoorUnit?.mounting)}
+        ${textArea("outdoor", "route", "Route", active.outdoorUnit?.route)}
+        ${textArea("outdoor", "clearances", "Clearances/access", active.outdoorUnit?.clearances)}
+        ${textArea("outdoor", "condensateRoute", "Condensate", active.outdoorUnit?.condensateRoute)}
+        ${textArea("outdoor", "notes", "Notes", active.outdoorUnit?.notes)}
+      </div>
+    </section>
+    <section class="panel">
+      <h2>Relevant questions now</h2>
+      ${questionList(active, evaluateQuestions(active))}
+    </section>
+  `;
+}
+
+function callScreen(active) {
+  const questions = evaluateQuestions(active)
+    .filter((question) => !question.complete && ["customer", "customer_photo"].includes(question.resolverType) && question.customerQuestion);
+  return `
+    <section class="panel call-panel">
+      <div>
+        <p class="eyebrow">Customer call</p>
+        <h2>${questions.length ? `${questions.length} customer item${questions.length === 1 ? "" : "s"}` : "No customer questions outstanding"}</h2>
+      </div>
+      <div class="stack">
+        ${questions.map(callQuestion).join("") || `<p class="ok">Customer-solvable items are complete.</p>`}
+      </div>
+    </section>
+  `;
+}
+
+function outstandingScreen(active) {
+  const groups = outstandingItems(active);
+  return `
+    <section class="panel">
+      <p class="eyebrow">Outstanding items</p>
+      <h2>Who can resolve what remains?</h2>
+      <div class="outstanding-grid">
+        ${outstandingGroup("Customer questions", groups.customerQuestions)}
+        ${outstandingGroup("Customer photos required", groups.customerPhotosRequired)}
+        ${outstandingGroup("Internal technical clarification", groups.internalTechnicalClarification)}
+        ${outstandingGroup("BG/admin issue", groups.bgAdminIssue)}
+        ${outstandingGroup("Surveyor review", groups.surveyorReview)}
+        ${outstandingGroup("Complete", groups.complete)}
+      </div>
+    </section>
+  `;
+}
+
+function handoverScreen(active, outputs) {
+  return `
+    <section class="panel output-screen">
+      <p class="eyebrow">Output</p>
+      <h2>Copy-ready handover text</h2>
+      ${copyBox("Salesforce handover note", "salesforce", outputs.salesforceHandover)}
+      ${copyBox("Customer follow-up message", "customer", outputs.customerFollowUp)}
+      ${copyBox("Internal questions", "internal", outputs.internalQuestions)}
+      ${copyBox("Manager completion message", "manager", outputs.managerCompletion)}
+      <div class="primary-actions">
+        <button data-action="download-json">Export lightweight JSON</button>
+        <button data-action="download-zip">Export complete ZIP</button>
+        <button data-action="mark-completed">Mark completed</button>
+      </div>
+    </section>
+  `;
+}
+
+function advancedScreen(active) {
+  const suggestions = active.aiReview?.suggestions ?? [];
+  return `
+    <section class="panel">
+      <p class="eyebrow">Advanced / AI review</p>
+      <h2>Optional AI support</h2>
+      <p class="hint">The app remains usable without AI. AI suggestions do not determine workflow state and do not overwrite confirmed values automatically.</p>
+      <div class="primary-actions">
+        <button data-action="copy-ai-prompt">Copy AI review prompt</button>
+        <button data-action="copy-ai-pack">Copy AI review JSON</button>
+        <button data-action="download-ai-pack">Download AI review pack ZIP</button>
+      </div>
+      <label>Paste AI JSON result
+        <textarea class="large-input ai-result-input" placeholder='{"schema":"bg.ac_triage.ai_result.v1",...}'></textarea>
+      </label>
+      <button class="primary" data-action="import-ai-result">Import as suggestions</button>
+    </section>
+    <section class="panel">
+      <h2>Pending AI suggestions</h2>
+      <div class="stack">
+        ${suggestions.map(aiSuggestion).join("") || `<p class="muted">No pending AI suggestions.</p>`}
+      </div>
+    </section>
+    <section class="panel">
+      <h2>Timeline</h2>
+      ${timelineView(active)}
+    </section>
+  `;
+}
+
+function evidenceItem(active, item) {
+  const evidence = active.evidenceStates?.[item.id] ?? { state: "missing", notes: "" };
+  return `
+    <article class="evidence-card">
+      <label>${escapeHtml(item.label)}
+        <select data-evidence="${item.id}">
+          ${options(EVIDENCE_STATES, evidence.state || "missing")}
+        </select>
+      </label>
+      <textarea data-evidence-notes="${item.id}" placeholder="Notes">${escapeHtml(evidence.notes || "")}</textarea>
     </article>
   `;
 }
 
-function outsideUnitEditor(outsideUnit) {
+function indoorUnitEditor(unit, index) {
   return `
-    <div class="grid two">
-      <label>Outdoor unit location<textarea data-outside-field="location">${escapeHtml(outsideUnit.location)}</textarea></label>
-      <label>Mounting / base<textarea data-outside-field="mounting">${escapeHtml(outsideUnit.mounting)}</textarea></label>
-      <label>Clearances<textarea data-outside-field="clearances">${escapeHtml(outsideUnit.clearances)}</textarea></label>
-      <label>Ladder access / height safety<textarea data-outside-field="ladderAccess">${escapeHtml(outsideUnit.ladderAccess)}</textarea></label>
-      <label class="span-two">Outside unit notes<textarea data-outside-field="notes">${escapeHtml(outsideUnit.notes)}</textarea></label>
-    </div>
+    <article class="sub-card" data-unit="${unit.id}">
+      <div class="panel-head">
+        <h3>Indoor unit ${index + 1}</h3>
+        ${index > 0 ? `<button class="danger" data-action="remove-indoor-unit" data-unit="${unit.id}">Remove</button>` : ""}
+      </div>
+      <div class="grid two">
+        ${input("indoor", unit.id, "room", "Room", unit.room)}
+        ${input("indoor", unit.id, "roomSize", "Room size", unit.roomSize)}
+        ${textArea("indoor", "agreedLocation", "Agreed location", unit.agreedLocation, unit.id)}
+        ${textArea("indoor", "wallConstruction", "Wall/construction", unit.wallConstruction, unit.id)}
+        ${textArea("indoor", "pipeRoute", "Pipe route", unit.pipeRoute, unit.id)}
+        ${input("indoor", unit.id, "nearestSocket", "Nearest socket", unit.nearestSocket)}
+        ${input("indoor", unit.id, "trunkingColour", "Trunking colour", unit.trunkingColour)}
+        ${textArea("indoor", "accessDetails", "Access details", unit.accessDetails, unit.id)}
+      </div>
+    </article>
   `;
 }
 
-function referencePanel() {
+function questionList(active, questions) {
+  const visible = questions.filter((question) => question.relevant);
+  if (!visible.length) return `<p class="muted">No relevant questions yet.</p>`;
   return `
-    <div class="reference-grid">
-      <article class="reference-card">
-        <h3>Indoor clearances</h3>
-        ${referenceList(REFERENCE_DATA.indoorClearances)}
-      </article>
-      <article class="reference-card">
-        <h3>Outdoor clearances</h3>
-        ${referenceList(REFERENCE_DATA.outdoorClearances)}
-      </article>
-    </div>
-    <div class="reference-grid">
-      <article class="reference-card">
-        <h3>Indoor unit dimensions</h3>
-        ${dimensionTable(REFERENCE_DATA.indoorDimensions)}
-      </article>
-      <article class="reference-card">
-        <h3>Outdoor unit dimensions</h3>
-        ${dimensionTable(REFERENCE_DATA.outdoorDimensions)}
-      </article>
-    </div>
-    <p class="hint">Reference from supplied Climate 3200i triage brief images. Confirm against current install instructions when required.</p>
-  `;
-}
-
-function referenceList(items) {
-  return `
-    <dl class="reference-list">
-      ${items.map((item) => `
-        <div>
-          <dt>${escapeHtml(item.label)}</dt>
-          <dd>${escapeHtml(item.value)}</dd>
-        </div>
+    <div class="question-list">
+      ${visible.map((question) => `
+        <article class="question-card ${question.complete ? "complete" : ""}">
+          <div>
+            <strong>${escapeHtml(question.internalLabel)}</strong>
+            <p>${escapeHtml(question.customerQuestion || question.why)}</p>
+            <small>${escapeHtml(question.why)} · ${escapeHtml(question.rationaleConfidence)}</small>
+          </div>
+          <span>${question.complete ? "complete" : resolverLabel(question.resolverType)}</span>
+        </article>
       `).join("")}
-    </dl>
+    </div>
   `;
 }
 
-function dimensionTable(items) {
+function callQuestion(question) {
   return `
-    <div class="table-scroll">
-      <table>
-        <thead>
-          <tr>
-            <th>Output</th>
-            <th>H</th>
-            <th>W</th>
-            <th>D</th>
-            <th>Kg</th>
-          </tr>
-        </thead>
-        <tbody>
-          ${items.map((item) => `
-            <tr>
-              <th>${escapeHtml(item.output)}</th>
-              <td>${item.height}</td>
-              <td>${item.width}</td>
-              <td>${item.depth}</td>
-              <td>${item.weight}</td>
-            </tr>
-          `).join("")}
-        </tbody>
-      </table>
-    </div>
+    <article class="call-question">
+      <h3>${escapeHtml(question.customerQuestion)}</h3>
+      <small>${escapeHtml(question.internalLabel)}</small>
+      <textarea data-call-note="${attr(question.key)}" placeholder="Short note"></textarea>
+      <div class="call-actions">
+        <button data-action="call-answer" data-question="${attr(question.key)}" data-result="answered">Answered</button>
+        <button data-action="call-answer" data-question="${attr(question.key)}" data-result="unsure">Customer unsure</button>
+        <button data-action="call-answer" data-question="${attr(question.key)}" data-result="photo">Photo required</button>
+        <button data-action="call-answer" data-question="${attr(question.key)}" data-result="na">Not applicable</button>
+        <button data-action="call-answer" data-question="${attr(question.key)}" data-result="internal">Follow up internally</button>
+      </div>
+    </article>
+  `;
+}
+
+function outstandingGroup(title, items) {
+  return `
+    <article class="outstanding-card">
+      <h3>${escapeHtml(title)}</h3>
+      ${items.length ? `<ul>${items.map((item) => `<li>${escapeHtml(item.internalLabel)}${item.customerQuestion ? `<small>${escapeHtml(item.customerQuestion)}</small>` : ""}</li>`).join("")}</ul>` : `<p class="muted">None</p>`}
+    </article>
+  `;
+}
+
+function copyBox(title, key, value) {
+  return `
+    <article class="copy-box">
+      <div class="panel-head">
+        <h3>${escapeHtml(title)}</h3>
+        <button data-action="copy-output" data-output="${key}">Copy</button>
+      </div>
+      <textarea readonly data-output-box="${key}">${escapeHtml(value || "")}</textarea>
+    </article>
   `;
 }
 
 function photoCard(photo) {
-  const source = photo.annotatedThumbDataUrl || photo.thumbDataUrl || photo.annotatedDataUrl || photo.dataUrl;
+  const source = photo.annotatedThumbDataUrl || photo.thumbDataUrl || photo.annotatedDataUrl || photo.dataUrl || "";
   return `
     <article class="photo-card">
-      <img src="${attr(source)}" alt="${attr(photo.name)}" loading="lazy" decoding="async">
+      ${source ? `<img src="${attr(source)}" alt="${attr(photo.name || "Photo")}" loading="lazy" decoding="async">` : ""}
       <div class="photo-meta">
         <label>Label<input data-photo-field="label" data-photo="${photo.id}" value="${attr(photo.label || "")}"></label>
-        <label>Type
-          <select data-photo-field="type" data-photo="${photo.id}">
-            ${options(PHOTO_TYPES, photo.type || "other")}
-          </select>
-        </label>
+        <label>Type<select data-photo-field="type" data-photo="${photo.id}">${options(PHOTO_TYPES, photo.type || "other")}</select></label>
         <label>Notes<textarea data-photo-field="notes" data-photo="${photo.id}">${escapeHtml(photo.notes || "")}</textarea></label>
-        <label>Requested annotation<textarea data-photo-field="requestedAnnotation" data-photo="${photo.id}">${escapeHtml(photo.requestedAnnotation || "")}</textarea></label>
       </div>
-      <div class="photo-actions">
-        <button data-action="edit-photo" data-photo="${photo.id}">Markup</button>
-        <button data-action="save-gallery" data-photo="${photo.id}">Save to gallery</button>
-        <button class="danger" data-action="remove-photo" data-photo="${photo.id}">Remove</button>
-      </div>
+      <button class="danger" data-action="remove-photo" data-photo="${photo.id}">Remove</button>
     </article>
   `;
 }
 
-function reviewRoundEditor(round) {
+function aiSuggestion(suggestion) {
   return `
     <article class="sub-card">
-      <div class="grid three">
-        <label>Round<input inputmode="numeric" data-review-field="round" data-review="${round.id}" value="${attr(round.round)}"></label>
-        <label>Sent at<input data-review-field="sentAt" data-review="${round.id}" value="${attr(round.sentAt || "")}"></label>
-        <label>AI decision
-          <select data-review-field="aiDecision" data-review="${round.id}">
-            ${options(AI_DECISIONS, round.aiDecision || "")}
-          </select>
-        </label>
+      <strong>${escapeHtml(suggestion.path)}</strong>
+      <p><b>Current:</b> ${escapeHtml(suggestion.currentValue)}</p>
+      <p><b>Suggested:</b> ${escapeHtml(suggestion.proposedValue)}</p>
+      <div class="action-row">
+        <button data-action="accept-ai-suggestion" data-suggestion="${suggestion.id}">Accept</button>
+        <button data-action="reject-ai-suggestion" data-suggestion="${suggestion.id}">Reject</button>
       </div>
-      <label>Input summary<textarea data-review-field="inputSummary" data-review="${round.id}">${escapeHtml(round.inputSummary || "")}</textarea></label>
-      <label>AI output<textarea data-review-field="aiOutput" data-review="${round.id}">${escapeHtml(round.aiOutput || "")}</textarea></label>
-      <label>Customer message from AI<textarea data-review-field="customerMessage" data-review="${round.id}">${escapeHtml(round.customerMessage || "")}</textarea></label>
-      <label>Outstanding blockers<textarea data-review-field="outstandingBlockers" data-review="${round.id}" placeholder="One blocker per line">${escapeHtml(round.outstandingBlockers || "")}</textarea></label>
     </article>
   `;
 }
 
-function customerReplyEditor(reply) {
-  return `
-    <article class="sub-card">
-      <label>Received at<input data-reply-field="receivedAt" data-reply="${reply.id}" value="${attr(reply.receivedAt || "")}"></label>
-      <label>Customer reply<textarea data-reply-field="text" data-reply="${reply.id}">${escapeHtml(reply.text || "")}</textarea></label>
-      <label>Photo IDs supplied<textarea data-reply-field="photoIds" data-reply="${reply.id}" placeholder="photo id per line">${escapeHtml((reply.photoIds || []).join("\n"))}</textarea></label>
-      <label>Notes<textarea data-reply-field="notes" data-reply="${reply.id}">${escapeHtml(reply.notes || "")}</textarea></label>
-    </article>
-  `;
+function timelineView(active) {
+  const timeline = active.timeline?.length ? active.timeline : buildCaseTimeline(active);
+  if (!timeline.length) return `<p class="muted">No timeline events yet.</p>`;
+  return `<ol class="timeline-list">${timeline.map((event) => `
+    <li>
+      <strong>${escapeHtml(event.summary || event.type)}</strong>
+      ${event.at ? `<small>${escapeHtml(formatDateTime(event.at))}</small>` : ""}
+      ${event.detail ? `<p>${escapeHtml(event.detail)}</p>` : ""}
+    </li>
+  `).join("")}</ol>`;
 }
 
-function markupEditor(item) {
-  const photo = item.photos.find((entry) => entry.id === state.markup.photoId);
-  if (!photo) return "";
-  return `
-    <div class="markup-panel">
-      <div class="markup-tools">
-        <strong>Markup: ${escapeHtml(photo.name)}</strong>
-        ${toolButton("line", "Pipe route line")}
-        ${toolButton("internal", "Indoor unit box")}
-        ${toolButton("external", "Outdoor unit box")}
-        ${toolButton("room", "Room box")}
-        ${toolButton("label", "Text label")}
-        <input class="label-input" data-action="label-text" value="${attr(state.markup.labelText)}" aria-label="Label text">
-        <button data-action="undo-markup">Undo</button>
-        <button class="primary" data-action="save-markup">Save annotated copy</button>
-        <button data-action="close-markup">Close</button>
-      </div>
-      <canvas id="markupCanvas" class="markup-canvas" aria-label="Photo markup canvas"></canvas>
-    </div>
-  `;
+function input(kind, id, field, label, value) {
+  return `<label>${escapeHtml(label)}<input data-${kind}-field="${field}" data-unit="${id}" value="${attr(value || "")}"></label>`;
 }
 
-function toolButton(tool, label) {
-  const active = state.markup.tool === tool ? "active" : "";
-  return `<button class="${active}" data-action="tool" data-tool="${tool}">${label}</button>`;
-}
-
-function questionList(item) {
-  const questions = generateMissingQuestions(item);
-  if (!questions.length) return `<p class="ok">No missing customer questions.</p>`;
-  return `<ol>${questions.map((question) => `<li>${escapeHtml(question)}</li>`).join("")}</ol>`;
-}
-
-function latestCustomerMessage(item) {
-  const rounds = item.reviewRounds ?? [];
-  for (let index = rounds.length - 1; index >= 0; index -= 1) {
-    const message = String(rounds[index].customerMessage || "").trim();
-    if (message) return message;
-  }
-  return "";
-}
-
-function formatDateTime(value) {
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return value;
-  return date.toLocaleString([], {
-    day: "2-digit",
-    month: "short",
-    hour: "2-digit",
-    minute: "2-digit",
-  });
+function textArea(kind, field, label, value, id = "") {
+  const unit = id ? ` data-unit="${id}"` : "";
+  return `<label>${escapeHtml(label)}<textarea data-${kind}-field="${field}"${unit}>${escapeHtml(value || "")}</textarea></label>`;
 }
 
 function bindEvents() {
   app.querySelectorAll("[data-action]").forEach((element) => {
-    element.addEventListener("click", handleAction);
-    if (element.dataset.action === "add-photos") {
-      element.addEventListener("change", handlePhotoUpload);
+    if (element.type === "file") {
+      element.addEventListener("change", handleFileAction);
+    } else {
+      element.addEventListener("click", handleAction);
     }
   });
-
   app.querySelectorAll("[data-field]").forEach((field) => {
     field.addEventListener("input", updateCaseField);
     field.addEventListener("change", updateCaseField);
   });
-  app.querySelectorAll("[data-check]").forEach((field) => {
-    field.addEventListener("change", updateChecklistField);
+  app.querySelectorAll("[data-case-detail]").forEach((field) => {
+    field.addEventListener("input", updateCaseDetail);
+    field.addEventListener("change", updateCaseDetail);
   });
-  app.querySelectorAll("[data-workflow]").forEach((field) => {
-    field.addEventListener("change", updateWorkflowField);
+  app.querySelectorAll("[data-evidence]").forEach((field) => field.addEventListener("change", updateEvidenceState));
+  app.querySelectorAll("[data-evidence-notes]").forEach((field) => field.addEventListener("input", updateEvidenceNotes));
+  app.querySelectorAll("[data-indoor-field]").forEach((field) => {
+    field.addEventListener("input", updateIndoorUnit);
+    field.addEventListener("change", updateIndoorUnit);
   });
-  app.querySelectorAll("[data-room-field]").forEach((field) => {
-    field.addEventListener("input", updateRoomField);
-    field.addEventListener("change", updateRoomField);
-  });
-  app.querySelectorAll("[data-outside-field]").forEach((field) => {
-    field.addEventListener("input", updateOutsideUnitField);
-    field.addEventListener("change", updateOutsideUnitField);
+  app.querySelectorAll("[data-outdoor-field]").forEach((field) => {
+    field.addEventListener("input", updateOutdoorUnit);
+    field.addEventListener("change", updateOutdoorUnit);
   });
   app.querySelectorAll("[data-photo-field]").forEach((field) => {
-    field.addEventListener("input", updatePhotoField);
-    field.addEventListener("change", updatePhotoField);
+    field.addEventListener("input", updatePhoto);
+    field.addEventListener("change", updatePhoto);
   });
-  app.querySelectorAll("[data-review-field]").forEach((field) => {
-    field.addEventListener("input", updateReviewRoundField);
-    field.addEventListener("change", updateReviewRoundField);
-  });
-  app.querySelectorAll("[data-reply-field]").forEach((field) => {
-    field.addEventListener("input", updateCustomerReplyField);
-    field.addEventListener("change", updateCustomerReplyField);
-  });
-
-  const labelInput = app.querySelector("[data-action='label-text']");
-  if (labelInput) {
-    labelInput.addEventListener("input", (event) => {
-      state.markup.labelText = event.target.value;
-    });
-  }
-
-  drawMarkupCanvas();
 }
 
 async function handleAction(event) {
@@ -631,443 +477,252 @@ async function handleAction(event) {
     const next = await saveCase(createEmptyCase());
     state.cases = [next, ...state.cases];
     state.selectedId = next.id;
+    state.screen = "intake";
     render();
+    return;
   }
   if (action === "select-case") {
     state.selectedId = event.currentTarget.dataset.id;
-    state.markup.photoId = null;
     render();
+    return;
+  }
+  if (action === "screen") {
+    state.screen = event.currentTarget.dataset.screen;
+    render();
+    return;
   }
   if (!active) return;
 
-  if (action === "delete-case" && confirm("Delete this triage case?")) {
-    await deleteCase(active.id);
-    state.cases = state.cases.filter((item) => item.id !== active.id);
-    state.selectedId = state.cases[0]?.id ?? null;
-    render();
-  }
-  if (action === "add-room") {
-    active.rooms.push(createEmptyRoom());
+  if (action === "extract-salesforce") {
+    Object.assign(active, extractSalesforceLeadDetails(active.sourceDetails));
     await persistActive(active);
   }
-  if (action === "remove-room") {
-    active.rooms = active.rooms.filter((room) => room.id !== event.currentTarget.dataset.room);
+  if (action === "add-indoor-unit") {
+    active.indoorUnits.push(createEmptyIndoorUnit());
+    active.caseDetails.indoorUnitCount = active.indoorUnits.length;
     await persistActive(active);
   }
-  if (action === "add-review-round") {
-    active.reviewRounds ||= [];
-    active.reviewRounds.push(createEmptyReviewRound(active.reviewRounds.length + 1));
+  if (action === "remove-indoor-unit") {
+    active.indoorUnits = active.indoorUnits.filter((unit) => unit.id !== event.currentTarget.dataset.unit);
+    active.caseDetails.indoorUnitCount = active.indoorUnits.length;
     await persistActive(active);
-  }
-  if (action === "add-customer-reply") {
-    active.customerReplies ||= [];
-    active.customerReplies.push(createEmptyCustomerReply());
-    await persistActive(active);
-  }
-  if (action === "add-quick-customer-reply") {
-    const input = app.querySelector(".quick-reply-input");
-    const text = input?.value?.trim();
-    if (!text) {
-      toast("Paste customer reply first");
-      return;
-    }
-    active.customerReplies ||= [];
-    active.customerReplies.push({
-      ...createEmptyCustomerReply(),
-      receivedAt: new Date().toISOString(),
-      text,
-      notes: "Added from round-trip box",
-    });
-    active.status = "ai_review_needed";
-    active.nextAction = "review_again";
-    await persistActive(active);
-  }
-  if (action === "copy-notes" || action === "copy-form") {
-    await copyText(handoverText(active));
-  }
-  if (action === "copy-ai-pack") {
-    await copyText(generateAiReviewPackJson(active));
-  }
-  if (action === "copy-full-ai-pack") {
-    const json = generateAiReviewPackJson(active, { includeImages: true });
-    await copyText(json);
-    toast(json.length > 900000 ? "Copied large full JSON" : "Copied full JSON");
-  }
-  if (action === "copy-ai-prompt") {
-    await copyText(generateAiReviewPrompt());
-  }
-  if (action === "download-review-pack") {
-    await downloadReviewPack(active);
-  }
-  if (action === "import-ai-result") {
-    await importAiResult(active);
-  }
-  if (action === "copy-questions") {
-    await copyText(generateMissingQuestions(active).join("\n") || "No missing customer questions.");
-  }
-  if (action === "copy-request") {
-    await copyText(customerMessageText(active));
-  }
-  if (action === "sms-customer") {
-    sendCustomerSms(active);
-  }
-  if (action === "email-customer") {
-    sendCustomerEmail(active);
-  }
-  if (action === "copy-reference") {
-    await copyText(generateReferenceText());
-  }
-  if (action === "share-case") {
-    await shareCase(active);
-  }
-  if (action === "edit-photo") {
-    state.markup.photoId = event.currentTarget.dataset.photo;
-    state.markup.points = [];
-    render();
   }
   if (action === "remove-photo") {
     active.photos = active.photos.filter((photo) => photo.id !== event.currentTarget.dataset.photo);
     await persistActive(active);
   }
-  if (action === "save-gallery") {
-    const photo = active.photos.find((entry) => entry.id === event.currentTarget.dataset.photo);
-    await saveImageFile(photo.annotatedDataUrl || photo.dataUrl, `${safeFileName(active.leadNumber || "ac-triage")}-${safeFileName(photo.name)}.png`);
+  if (action === "copy-output") {
+    const box = app.querySelector(`[data-output-box="${event.currentTarget.dataset.output}"]`);
+    await copyText(box?.value || "");
   }
-  if (action === "tool") {
-    state.markup.tool = event.currentTarget.dataset.tool;
-    state.markup.points = [];
-    render();
+  if (action === "download-json") downloadPortableJson(active);
+  if (action === "download-zip") await downloadPortableZip(active);
+  if (action === "mark-completed") {
+    active.status = "completed";
+    await persistActive(active);
   }
-  if (action === "undo-markup") {
-    const photo = active.photos.find((entry) => entry.id === state.markup.photoId);
-    photo?.marks.pop();
-    await persistActive(active, false);
-    render();
+  if (action === "copy-ai-prompt") await copyText(generateAiReviewPrompt());
+  if (action === "copy-ai-pack") await copyText(generateAiReviewPackJson(active));
+  if (action === "download-ai-pack") await downloadAiReviewPack(active);
+  if (action === "import-ai-result") await importAiResult(active);
+  if (action === "accept-ai-suggestion") await resolveAiSuggestion(active, event.currentTarget.dataset.suggestion, true);
+  if (action === "reject-ai-suggestion") await resolveAiSuggestion(active, event.currentTarget.dataset.suggestion, false);
+  if (action === "call-answer") await applyCallAnswer(active, event.currentTarget);
+}
+
+async function handleFileAction(event) {
+  const action = event.currentTarget.dataset.action;
+  if (action === "add-photos") {
+    const active = selectedCase();
+    if (!active) return;
+    const files = [...event.currentTarget.files];
+    active.photos ||= [];
+    active.photos.push(...await Promise.all(files.map(readPhotoFile)));
+    if (files.length) {
+      active.evidenceStates.indoor_unit_wall_photos.state = active.photos.some((photo) => photo.type === "indoor_location") ? "confirmed" : active.evidenceStates.indoor_unit_wall_photos.state;
+      active.evidenceStates.outdoor_unit_photos.state = active.photos.some((photo) => photo.type === "outdoor_location") ? "confirmed" : active.evidenceStates.outdoor_unit_photos.state;
+      active.evidenceStates.consumer_unit_photo.state = active.photos.some((photo) => photo.type === "fuse_board") ? "confirmed" : active.evidenceStates.consumer_unit_photo.state;
+    }
+    await persistActive(active);
   }
-  if (action === "save-markup") {
-    await saveAnnotatedPhoto(active);
-  }
-  if (action === "close-markup") {
-    state.markup.photoId = null;
-    render();
+  if (action === "import-case") {
+    const file = event.currentTarget.files?.[0];
+    if (!file) return;
+    try {
+      const imported = importPortableCase(JSON.parse(await file.text()));
+      imported.id ||= crypto.randomUUID();
+      const saved = await saveCase(imported);
+      state.cases = [saved, ...state.cases.filter((item) => item.id !== saved.id)];
+      state.selectedId = saved.id;
+      state.screen = "intake";
+      render();
+    } catch (error) {
+      toast(error.message || "Could not import case");
+    }
   }
 }
 
 async function updateCaseField(event) {
   const active = selectedCase();
+  if (!active) return;
   active[event.target.dataset.field] = event.target.value;
-  if (event.target.dataset.field === "sourceDetails") {
-    applySalesforceExtraction(active);
-  }
   await persistActive(active, false);
-  renderSoft();
 }
 
-function applySalesforceExtraction(active) {
-  const extracted = extractSalesforceLeadDetails(active.sourceDetails);
-  for (const [target, value] of Object.entries({
-    leadNumber: extracted.leadNumber,
-    customerName: extracted.customerName,
-    address: extracted.address,
-    contactNumber: extracted.contactNumber,
-    customerEmail: extracted.customerEmail,
-  })) {
-    if (!String(active[target] || "").trim() && value) {
-      active[target] = value;
-    }
-  }
-}
-
-async function updateChecklistField(event) {
+async function updateCaseDetail(event) {
   const active = selectedCase();
-  active.checklist[event.target.dataset.check] = event.target.checked;
+  if (!active) return;
+  active.caseDetails ||= {};
+  const field = event.target.dataset.caseDetail;
+  const value = field === "indoorUnitCount" ? Math.max(1, Number(event.target.value) || 1) : event.target.value;
+  active.caseDetails[field] = value;
+  if (field === "indoorUnitCount") syncIndoorUnitCount(active, value);
+  await persistActive(active, field === "indoorUnitCount");
+}
+
+async function updateEvidenceState(event) {
+  const active = selectedCase();
+  if (!active) return;
+  const id = event.target.dataset.evidence;
+  active.evidenceStates[id] = { ...(active.evidenceStates[id] ?? {}), state: event.target.value, updatedAt: new Date().toISOString() };
   await persistActive(active);
 }
 
-async function updateWorkflowField(event) {
+async function updateEvidenceNotes(event) {
   const active = selectedCase();
-  active.workflow ||= {};
-  active.workflow[event.target.dataset.workflow] = event.target.checked;
-  await persistActive(active);
-}
-
-async function updateRoomField(event) {
-  const active = selectedCase();
-  const room = active.rooms.find((entry) => entry.id === event.target.dataset.room);
-  const field = event.target.dataset.roomField;
-  room[field] = event.target.type === "checkbox" ? event.target.checked : event.target.value;
-  if (field === "roomSize" && !room.suggestedUnitSize) {
-    room.suggestedUnitSize = suggestUnitSize(room.roomSize);
-  }
+  if (!active) return;
+  const id = event.target.dataset.evidenceNotes;
+  active.evidenceStates[id] = { ...(active.evidenceStates[id] ?? {}), notes: event.target.value, updatedAt: new Date().toISOString() };
   await persistActive(active, false);
-  renderSoft();
 }
 
-async function updateOutsideUnitField(event) {
+async function updateIndoorUnit(event) {
   const active = selectedCase();
-  active.outsideUnit ||= {};
-  active.outsideUnit[event.target.dataset.outsideField] = event.target.value;
+  if (!active) return;
+  const unit = active.indoorUnits.find((item) => item.id === event.target.dataset.unit);
+  if (!unit) return;
+  unit[event.target.dataset.indoorField] = event.target.value;
   await persistActive(active, false);
-  renderSoft();
 }
 
-async function updatePhotoField(event) {
+async function updateOutdoorUnit(event) {
   const active = selectedCase();
-  const photo = active.photos.find((entry) => entry.id === event.target.dataset.photo);
+  if (!active) return;
+  active.outdoorUnit ||= {};
+  active.outdoorUnit[event.target.dataset.outdoorField] = event.target.value;
+  await persistActive(active, false);
+}
+
+async function updatePhoto(event) {
+  const active = selectedCase();
+  if (!active) return;
+  const photo = active.photos.find((item) => item.id === event.target.dataset.photo);
   if (!photo) return;
   photo[event.target.dataset.photoField] = event.target.value;
   await persistActive(active, false);
-  renderSoft();
 }
 
-async function updateReviewRoundField(event) {
-  const active = selectedCase();
-  const round = active.reviewRounds?.find((entry) => entry.id === event.target.dataset.review);
-  if (!round) return;
-  const field = event.target.dataset.reviewField;
-  round[field] = field === "round" ? Number(event.target.value) || "" : event.target.value;
-  await persistActive(active, false);
-  renderSoft();
-}
-
-async function updateCustomerReplyField(event) {
-  const active = selectedCase();
-  const reply = active.customerReplies?.find((entry) => entry.id === event.target.dataset.reply);
-  if (!reply) return;
-  const field = event.target.dataset.replyField;
-  reply[field] = field === "photoIds"
-    ? event.target.value.split(/\n+/).map((item) => item.trim()).filter(Boolean)
-    : event.target.value;
-  await persistActive(active, false);
-  renderSoft();
-}
-
-async function handlePhotoUpload(event) {
-  const active = selectedCase();
-  const files = [...event.target.files];
-  const photos = await Promise.all(files.map(readPhotoFile));
-  active.photos.push(...photos);
+async function applyCallAnswer(active, target) {
+  const key = target.dataset.question;
+  const result = target.dataset.result;
+  const note = app.querySelector(`[data-call-note="${cssEscape(key)}"]`)?.value || "";
+  active.answers[key] = {
+    value: note,
+    state: result === "answered" ? "confirmed" : result === "na" ? "not_applicable" : result === "internal" ? "awaiting_internal_clarification" : "awaiting_customer",
+    notes: note,
+    source: "customer_call",
+    updatedAt: new Date().toISOString(),
+  };
+  const question = evaluateQuestions(active).find((item) => item.key === key);
+  if (question?.category && active.evidenceStates[question.category]) {
+    active.evidenceStates[question.category].state = active.answers[key].state;
+    active.evidenceStates[question.category].notes = note;
+    active.evidenceStates[question.category].updatedAt = new Date().toISOString();
+  }
   await persistActive(active);
 }
 
-async function readPhotoFile(file) {
-  const objectUrl = URL.createObjectURL(file);
-  try {
-    const image = await loadImage(objectUrl);
-    const resized = drawImageToDataUrl(image, PHOTO_MAX_EDGE);
-    const thumb = drawImageToDataUrl(image, THUMB_MAX_EDGE);
-    return {
-      id: crypto.randomUUID(),
-      name: file.name,
-      label: file.name,
-      type: "other",
-      notes: "",
-      requestedAnnotation: "",
-      dataUrl: resized.dataUrl,
-      thumbDataUrl: thumb.dataUrl,
-      annotatedDataUrl: "",
-      annotatedThumbDataUrl: "",
-      marks: [],
-    };
-  } finally {
-    URL.revokeObjectURL(objectUrl);
+async function importAiResult(active) {
+  const input = app.querySelector(".ai-result-input");
+  const raw = input?.value?.trim();
+  if (!raw) {
+    toast("Paste AI JSON first");
+    return;
   }
-}
-
-function drawMarkupCanvas() {
-  const canvas = document.querySelector("#markupCanvas");
-  const active = selectedCase();
-  const photo = active?.photos.find((entry) => entry.id === state.markup.photoId);
-  if (!canvas || !photo) return;
-
-  const image = new Image();
-  image.onload = () => {
-    const maxWidth = Math.min(canvas.parentElement.clientWidth, 1100);
-    const scale = maxWidth / image.naturalWidth;
-    canvas.width = image.naturalWidth;
-    canvas.height = image.naturalHeight;
-    canvas.style.width = `${maxWidth}px`;
-    canvas.style.height = `${image.naturalHeight * scale}px`;
-    const context = canvas.getContext("2d");
-    context.drawImage(image, 0, 0);
-    drawMarks(context, photo.marks);
-  };
-  image.src = photo.dataUrl;
-
-  canvas.addEventListener("pointerdown", async (event) => {
-    const point = canvasPoint(canvas, event);
-    await addMarkPoint(active, photo, point);
-  });
-}
-
-async function addMarkPoint(active, photo, point) {
-  const tool = state.markup.tool;
-  if (tool === "label") {
-    photo.marks.push({ type: "label", point, text: state.markup.labelText || "Label" });
-    await persistActive(active);
+  let result;
+  try {
+    result = JSON.parse(raw);
+  } catch {
+    toast("Invalid JSON");
     return;
   }
 
-  state.markup.points.push(point);
-  if (state.markup.points.length < 2) return;
-
-  const [start, end] = state.markup.points;
-  if (tool === "line") photo.marks.push({ type: "line", start, end });
-  if (tool === "internal") photo.marks.push({ type: "box", kind: "internal", start, end });
-  if (tool === "external") photo.marks.push({ type: "box", kind: "external", start, end });
-  if (tool === "room") photo.marks.push({ type: "box", kind: "room", start, end });
-  state.markup.points = [];
+  active.reviewRounds ||= [];
+  active.reviewRounds.push({
+    id: crypto.randomUUID(),
+    round: active.reviewRounds.length + 1,
+    sentAt: new Date().toISOString(),
+    inputSummary: "Imported optional AI JSON result",
+    aiDecision: result.decision || "",
+    aiOutput: JSON.stringify(result, null, 2),
+    customerMessage: result.customerMessage || "",
+    outstandingBlockers: Array.isArray(result.missingBlockers) ? result.missingBlockers.join("\n") : "",
+  });
+  active.aiReview ||= { suggestions: [] };
+  active.aiReview.suggestions.push(...prepareAiSuggestions(active, result));
+  active.timeline = buildCaseTimeline(active);
   await persistActive(active);
+  toast("AI suggestions imported");
 }
 
-function drawMarks(context, marks) {
-  context.lineWidth = Math.max(8, context.canvas.width * 0.006);
-  context.font = `${Math.max(28, context.canvas.width * 0.032)}px system-ui`;
-  context.textBaseline = "top";
-
-  for (const mark of marks ?? []) {
-    if (mark.type === "line") {
-      context.strokeStyle = mark.colour || "#ffcf33";
-      context.beginPath();
-      context.moveTo(mark.start.x, mark.start.y);
-      context.lineTo(mark.end.x, mark.end.y);
-      context.stroke();
-      drawPoint(context, mark.start);
-      drawPoint(context, mark.end);
-      if (mark.label) drawLabel(context, mark.start, mark.label, mark.colour);
-    }
-    if (mark.type === "box") {
-      context.strokeStyle = mark.colour || (mark.kind === "internal" ? "#35d07f" : mark.kind === "external" ? "#4aa3ff" : "#ff7a45");
-      context.strokeRect(mark.start.x, mark.start.y, mark.end.x - mark.start.x, mark.end.y - mark.start.y);
-      drawLabel(context, mark.start, mark.label || (mark.kind === "internal" ? "Indoor unit" : mark.kind === "external" ? "Outdoor unit" : "Room"), mark.colour);
-    }
-    if (mark.type === "label") {
-      drawLabel(context, mark.point, mark.text || mark.label, mark.colour);
-    }
-  }
-}
-
-function drawPoint(context, point) {
-  context.fillStyle = "#ffcf33";
-  context.beginPath();
-  context.arc(point.x, point.y, Math.max(10, context.canvas.width * 0.008), 0, Math.PI * 2);
-  context.fill();
-}
-
-function drawLabel(context, point, text, colour = "#153047") {
-  const label = String(text || "Label");
-  const padding = 10;
-  const metrics = context.measureText(label);
-  context.fillStyle = hexToRgba(colour, 0.88);
-  context.fillRect(point.x, point.y, metrics.width + padding * 2, 44 + padding);
-  context.fillStyle = "#ffffff";
-  context.fillText(label, point.x + padding, point.y + padding);
-}
-
-async function saveAnnotatedPhoto(active) {
-  const canvas = document.querySelector("#markupCanvas");
-  const photo = active.photos.find((entry) => entry.id === state.markup.photoId);
-  if (!canvas || !photo) return;
-  photo.annotatedDataUrl = canvas.toDataURL("image/jpeg", PHOTO_QUALITY);
-  photo.annotatedThumbDataUrl = drawCanvasToDataUrl(canvas, THUMB_MAX_EDGE).dataUrl;
+async function resolveAiSuggestion(active, id, accept) {
+  const suggestion = active.aiReview?.suggestions?.find((item) => item.id === id);
+  if (!suggestion) return;
+  if (accept) setValueAt(active, suggestion.path, suggestion.proposedValue);
+  active.aiReview.suggestions = active.aiReview.suggestions.filter((item) => item.id !== id);
   await persistActive(active);
-}
-
-function canvasPoint(canvas, event) {
-  const rect = canvas.getBoundingClientRect();
-  return {
-    x: Math.round(((event.clientX - rect.left) / rect.width) * canvas.width),
-    y: Math.round(((event.clientY - rect.top) / rect.height) * canvas.height),
-  };
 }
 
 async function persistActive(active, rerender = true) {
+  active.completionStatus = calculateCompletionStatus(active);
+  active.status = active.status === "completed" ? "completed" : active.completionStatus.status;
+  active.generatedOutputs = generateOutputs(active);
   const saved = await saveCase(active);
   state.cases = state.cases.map((item) => item.id === saved.id ? saved : item);
   if (rerender) render();
 }
 
-async function compactCasePhotos(cases) {
-  let changed = false;
-  const compacted = [];
-
-  for (const caseData of cases) {
-    const photos = [];
-    for (const photo of caseData.photos ?? []) {
-      const compactedPhoto = await compactPhoto(photo).catch(() => photo);
-      if (compactedPhoto !== photo) changed = true;
-      photos.push(compactedPhoto);
-    }
-    compacted.push({ ...caseData, photos });
-  }
-
-  if (changed) {
-    for (const caseData of compacted) {
-      await saveCase(caseData);
-    }
-  }
-
-  return compacted;
+function syncIndoorUnitCount(active, count) {
+  active.indoorUnits ||= [];
+  while (active.indoorUnits.length < count) active.indoorUnits.push(createEmptyIndoorUnit());
+  while (active.indoorUnits.length > count && active.indoorUnits.length > 1) active.indoorUnits.pop();
 }
 
-async function compactPhoto(photo) {
-  if (!photo?.dataUrl) return photo;
-
-  const image = await loadImage(photo.dataUrl);
+async function readPhotoFile(file) {
+  const dataUrl = await fileToDataUrl(file);
+  const image = await loadImage(dataUrl);
   const resized = drawImageToDataUrl(image, PHOTO_MAX_EDGE);
   const thumb = drawImageToDataUrl(image, THUMB_MAX_EDGE);
-  const shouldReplaceData = image.naturalWidth !== resized.width || image.naturalHeight !== resized.height;
-  const next = { ...photo };
-
-  if (shouldReplaceData) {
-    const scaleX = resized.width / image.naturalWidth;
-    const scaleY = resized.height / image.naturalHeight;
-    next.dataUrl = resized.dataUrl;
-    next.marks = scaleMarks(photo.marks ?? [], scaleX, scaleY);
-    next.annotatedDataUrl = "";
-    next.annotatedThumbDataUrl = "";
-  }
-
-  if (!next.thumbDataUrl || shouldReplaceData) {
-    next.thumbDataUrl = thumb.dataUrl;
-  }
-
-  if (next.annotatedDataUrl && !next.annotatedThumbDataUrl) {
-    const annotatedImage = await loadImage(next.annotatedDataUrl);
-    next.annotatedDataUrl = drawImageToDataUrl(annotatedImage, PHOTO_MAX_EDGE).dataUrl;
-    next.annotatedThumbDataUrl = drawImageToDataUrl(annotatedImage, THUMB_MAX_EDGE).dataUrl;
-  }
-
-  return next.dataUrl !== photo.dataUrl ||
-    next.thumbDataUrl !== photo.thumbDataUrl ||
-    next.annotatedDataUrl !== photo.annotatedDataUrl ||
-    next.annotatedThumbDataUrl !== photo.annotatedThumbDataUrl ||
-    next.marks !== photo.marks
-    ? next
-    : photo;
-}
-
-function scaleMarks(marks, scaleX, scaleY) {
-  return marks.map((mark) => {
-    if (mark.type === "line" || mark.type === "box") {
-      return {
-        ...mark,
-        start: scalePoint(mark.start, scaleX, scaleY),
-        end: scalePoint(mark.end, scaleX, scaleY),
-      };
-    }
-    if (mark.type === "label") {
-      return { ...mark, point: scalePoint(mark.point, scaleX, scaleY) };
-    }
-    return mark;
-  });
-}
-
-function scalePoint(point, scaleX, scaleY) {
   return {
-    x: Math.round((point?.x ?? 0) * scaleX),
-    y: Math.round((point?.y ?? 0) * scaleY),
+    id: crypto.randomUUID(),
+    name: file.name,
+    label: file.name.replace(/\.[^.]+$/, ""),
+    type: inferPhotoType(file.name),
+    notes: "",
+    requestedAnnotation: "",
+    dataUrl: resized.dataUrl,
+    thumbDataUrl: thumb.dataUrl,
+    marks: [],
   };
+}
+
+function fileToDataUrl(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(reader.result);
+    reader.onerror = () => reject(reader.error);
+    reader.readAsDataURL(file);
+  });
 }
 
 function loadImage(source) {
@@ -1091,348 +746,44 @@ function drawImageToDataUrl(image, maxEdge) {
   return { dataUrl: canvas.toDataURL("image/jpeg", PHOTO_QUALITY), width, height };
 }
 
-function drawCanvasToDataUrl(sourceCanvas, maxEdge) {
-  const scale = Math.min(1, maxEdge / Math.max(sourceCanvas.width, sourceCanvas.height));
-  const width = Math.max(1, Math.round(sourceCanvas.width * scale));
-  const height = Math.max(1, Math.round(sourceCanvas.height * scale));
-  const canvas = document.createElement("canvas");
-  canvas.width = width;
-  canvas.height = height;
-  const context = canvas.getContext("2d", { alpha: false });
-  context.drawImage(sourceCanvas, 0, 0, width, height);
-  return { dataUrl: canvas.toDataURL("image/jpeg", PHOTO_QUALITY), width, height };
+function downloadPortableJson(active) {
+  const json = JSON.stringify(exportPortableCase(active), null, 2);
+  downloadBlob(new Blob([json], { type: "application/json" }), caseExportFileName(active, "json"));
 }
 
-function renderSoft() {
-  const preview = app.querySelector(".handover-preview");
-  const questions = app.querySelector(".questions");
-  const message = app.querySelector(".message-preview");
-  const active = selectedCase();
-  if (preview && active) preview.textContent = handoverText(active);
-  if (questions && active) questions.innerHTML = questionList(active);
-  if (message && active) message.textContent = latestCustomerMessage(active) || generateCustomerRequestMessage(active);
-  const aiPack = app.querySelector(".compact-preview");
-  if (aiPack && active) aiPack.textContent = generateAiReviewPackJson(active);
-  const nextAction = app.querySelector(".next-action-panel h2");
-  if (nextAction && active) nextAction.textContent = nextActionLabel(active.nextAction);
+async function downloadPortableZip(active) {
+  const portable = exportPortableCase(active);
+  const files = [{ name: "case.json", bytes: new TextEncoder().encode(JSON.stringify(portable, null, 2)) }];
+  await addPhotoFiles(files, active);
+  downloadBlob(createZipBlob(files), caseExportFileName(active, "zip"));
 }
 
-async function copyText(text) {
-  await navigator.clipboard.writeText(text);
-  toast("Copied");
+async function downloadAiReviewPack(active) {
+  const files = [{ name: "review-pack.json", bytes: new TextEncoder().encode(generateAiReviewPackJson(active)) }];
+  await addPhotoFiles(files, active);
+  downloadBlob(createZipBlob(files), `${safeFileName(active.leadNumber || active.customerName || "review-pack")}.zip`);
 }
 
-async function shareCase(active) {
-  const text = handoverText(active);
-  if (navigator.share) {
-    await navigator.share({ title: `AC triage ${active.leadNumber || active.customerName}`, text });
-  } else {
-    await copyText(text);
-  }
-}
-
-async function importAiResult(active) {
-  const input = app.querySelector(".ai-result-input");
-  const raw = input?.value?.trim();
-  if (!raw) {
-    toast("Paste AI JSON first");
-    return;
-  }
-
-  let result;
-  try {
-    result = JSON.parse(raw);
-  } catch {
-    toast("Invalid JSON");
-    return;
-  }
-
-  active.reviewRounds ||= [];
-  const decision = ["ready", "missing_info"].includes(result.decision) ? result.decision : "";
-  const customerMessage = result.customerMessage || result.customerSmsOrEmail || "";
-  const blockers = [
-    ...(Array.isArray(result.missingBlockers) ? result.missingBlockers : []),
-    ...(Array.isArray(result.blockers) ? result.blockers : []),
-  ].map((item) => typeof item === "string" ? item : item.label || item.description || JSON.stringify(item));
-
-  active.reviewRounds.push({
-    id: crypto.randomUUID(),
-    round: active.reviewRounds.length + 1,
-    sentAt: new Date().toISOString(),
-    inputSummary: "Imported AI JSON result",
-    aiDecision: decision,
-    aiOutput: JSON.stringify(result, null, 2),
-    customerMessage,
-    outstandingBlockers: blockers.join("\n"),
-  });
-
-  applyLeadUpdates(active, result.lead);
-  applyRoomUpdates(active, result.rooms);
-  applyOutsideUnitUpdates(active, result.outsideUnit);
-
-  if (result.handoverNotes) {
-    active.notes = String(result.handoverNotes);
-  }
-
-  if (result.status && ["draft", "ai_review_needed", "awaiting_customer", "ready", "complete"].includes(result.status)) {
-    active.status = result.status;
-  } else if (decision === "ready") {
-    active.status = "ready";
-  } else if (decision === "missing_info") {
-    active.status = "awaiting_customer";
-  }
-
-  if (result.nextAction && ["review_again", "send_customer_message", "wait_for_reply", "copy_handover_to_salesforce"].includes(result.nextAction)) {
-    active.nextAction = result.nextAction;
-  } else if (decision === "ready") {
-    active.nextAction = "copy_handover_to_salesforce";
-  } else if (customerMessage || blockers.length) {
-    active.nextAction = "send_customer_message";
-  } else {
-    active.nextAction = "review_again";
-  }
-
-  await applyPhotoAnnotations(active, result.photoAnnotations);
-  await persistActive(active);
-  toast("AI result imported");
-}
-
-function applyLeadUpdates(active, lead) {
-  if (!lead || typeof lead !== "object") return;
-  const fields = [
-    "leadNumber",
-    "customerName",
-    "address",
-    "contactNumber",
-    "customerEmail",
-    "propertyType",
-    "installDate",
-    "planningDate",
-  ];
-  for (const field of fields) {
-    if (typeof lead[field] === "string" && lead[field].trim()) {
-      active[field] = lead[field].trim();
-    }
-  }
-}
-
-function applyRoomUpdates(active, rooms) {
-  if (!Array.isArray(rooms) || !rooms.length) return;
-  active.rooms = rooms.map((room, index) => {
-    const existing = active.rooms?.[index] || createEmptyRoom();
-    return {
-      ...existing,
-      roomName: textValue(room.roomName) || existing.roomName,
-      roomSize: textValue(room.roomSizeM2 ?? room.roomSize) || existing.roomSize,
-      suggestedUnitSize: textValue(room.suggestedUnitSize) || existing.suggestedUnitSize,
-      internalLocation: textValue(room.internalLocation) || existing.internalLocation,
-      pipeRun: textValue(room.pipeRun) || existing.pipeRun,
-      trunkingColour: textValue(room.trunkingColour) || existing.trunkingColour,
-      plugLocation: textValue(room.plugLocation) || existing.plugLocation,
-      electricalSupplyNotes: textValue(room.electricalSupplyNotes) || existing.electricalSupplyNotes,
-      wifiDongleRequired: typeof room.wifiDongleRequired === "boolean" ? room.wifiDongleRequired : existing.wifiDongleRequired,
-    };
-  });
-}
-
-function applyOutsideUnitUpdates(active, outsideUnit) {
-  if (!outsideUnit || typeof outsideUnit !== "object") return;
-  active.outsideUnit ||= {};
-  for (const field of ["location", "mounting", "clearances", "ladderAccess", "notes"]) {
-    const value = textValue(outsideUnit[field]);
-    if (value) active.outsideUnit[field] = value;
-  }
-}
-
-async function applyPhotoAnnotations(active, photoAnnotations) {
-  if (!Array.isArray(photoAnnotations) || !photoAnnotations.length) return;
-
-  for (const entry of photoAnnotations) {
-    const photo = active.photos?.find((item) => item.id === entry.photoId || item.name === entry.photoId || item.label === entry.photoId);
-    if (!photo) continue;
-
-    const image = await loadImage(photo.dataUrl);
-    const marks = annotationMarks(entry.annotations, image.naturalWidth, image.naturalHeight);
-    if (marks.length) {
-      photo.marks ||= [];
-      photo.marks.push(...marks);
-      await renderAnnotatedPhoto(photo);
-    }
-
-    const instructions = textValue(entry.instructions || entry.targetDescription);
-    if (instructions) {
-      photo.requestedAnnotation = [photo.requestedAnnotation, instructions].filter(Boolean).join("\n");
-    }
-  }
-}
-
-function annotationMarks(annotations, width, height) {
-  if (!Array.isArray(annotations)) return [];
-  const marks = [];
-
-  for (const annotation of annotations) {
-    const colour = validColour(annotation.colour) ? annotation.colour : "";
-    const label = textValue(annotation.label);
-
-    if (annotation.type === "line" && Array.isArray(annotation.points) && annotation.points.length >= 2) {
-      const points = annotation.points.map((point) => normalisedPoint(point, width, height)).filter(Boolean);
-      for (let index = 0; index < points.length - 1; index += 1) {
-        marks.push({
-          type: "line",
-          start: points[index],
-          end: points[index + 1],
-          label: index === 0 ? label : "",
-          colour,
-        });
-      }
-    }
-
-    if (annotation.type === "box" && annotation.rect) {
-      const start = normalisedPoint(annotation.rect, width, height);
-      const end = normalisedPoint({
-        x: Number(annotation.rect.x) + Number(annotation.rect.width),
-        y: Number(annotation.rect.y) + Number(annotation.rect.height),
-      }, width, height);
-      if (start && end) {
-        marks.push({
-          type: "box",
-          kind: boxKind(label),
-          start,
-          end,
-          label,
-          colour,
-        });
-      }
-    }
-
-    if (annotation.type === "label" && annotation.point) {
-      const point = normalisedPoint(annotation.point, width, height);
-      if (point) marks.push({ type: "label", point, text: label || "Label", colour });
-    }
-  }
-
-  return marks;
-}
-
-function normalisedPoint(point, width, height) {
-  const x = Number(point?.x);
-  const y = Number(point?.y);
-  if (!Number.isFinite(x) || !Number.isFinite(y)) return null;
-  if (x < 0 || y < 0 || x > 1 || y > 1) return null;
-  return {
-    x: Math.round(x * width),
-    y: Math.round(y * height),
-  };
-}
-
-function boxKind(label) {
-  const value = String(label || "").toLowerCase();
-  if (value.includes("outdoor") || value.includes("outside")) return "external";
-  if (value.includes("room")) return "room";
-  return "internal";
-}
-
-async function renderAnnotatedPhoto(photo) {
-  const image = await loadImage(photo.dataUrl);
-  const canvas = document.createElement("canvas");
-  canvas.width = image.naturalWidth;
-  canvas.height = image.naturalHeight;
-  const context = canvas.getContext("2d", { alpha: false });
-  context.drawImage(image, 0, 0);
-  drawMarks(context, photo.marks);
-  photo.annotatedDataUrl = canvas.toDataURL("image/jpeg", PHOTO_QUALITY);
-  photo.annotatedThumbDataUrl = drawCanvasToDataUrl(canvas, THUMB_MAX_EDGE).dataUrl;
-}
-
-function textValue(value) {
-  return typeof value === "string" ? value.trim() : value == null ? "" : String(value).trim();
-}
-
-function validColour(value) {
-  return typeof value === "string" && /^#[0-9a-f]{6}$/i.test(value);
-}
-
-function hexToRgba(value, alpha) {
-  if (!validColour(value)) return `rgba(21, 48, 71, ${alpha})`;
-  const red = parseInt(value.slice(1, 3), 16);
-  const green = parseInt(value.slice(3, 5), 16);
-  const blue = parseInt(value.slice(5, 7), 16);
-  return `rgba(${red}, ${green}, ${blue}, ${alpha})`;
-}
-
-async function downloadReviewPack(active) {
-  const files = [{
-    name: "review-pack.json",
-    bytes: new TextEncoder().encode(generateAiReviewPackJson(active)),
-  }];
-
+async function addPhotoFiles(files, active) {
   for (const [index, photo] of (active.photos ?? []).entries()) {
-    const dataUrl = photo.annotatedDataUrl || photo.dataUrl;
-    if (!dataUrl) continue;
-    const fileName = `${String(index + 1).padStart(2, "0")}-${safeFileName(photo.label || photo.name || `photo-${index + 1}`)}.jpg`;
-    const blob = await dataUrlToBlob(dataUrl);
-    files.push({
-      name: `photos/${fileName}`,
-      bytes: new Uint8Array(await blob.arrayBuffer()),
-    });
+    if (photo.dataUrl) {
+      const blob = await dataUrlToBlob(photo.dataUrl);
+      files.push({ name: `photos/original/${photoFileName(photo, index)}`, bytes: new Uint8Array(await blob.arrayBuffer()) });
+    }
+    if (photo.annotatedDataUrl) {
+      const blob = await dataUrlToBlob(photo.annotatedDataUrl);
+      files.push({ name: `photos/annotated/${photoFileName(photo, index)}`, bytes: new Uint8Array(await blob.arrayBuffer()) });
+    }
   }
-
-  const zipBlob = createZipBlob(files);
-  downloadBlob(zipBlob, `${safeFileName(active.leadNumber || active.customerName || "review-pack")}.zip`);
 }
 
-function handoverText(active) {
-  return String(active.notes || "").trim() || generateHandoverNotes(active);
-}
-
-function customerMessageText(active) {
-  return latestCustomerMessage(active) || generateCustomerRequestMessage(active);
-}
-
-function sendCustomerSms(active) {
-  const number = String(active.contactNumber ?? "").replace(/[^\d+]/g, "");
-  if (!number) {
-    toast("No phone number");
-    return;
-  }
-  window.location.href = `sms:${number}&body=${encodeURIComponent(customerMessageText(active))}`;
-}
-
-function sendCustomerEmail(active) {
-  const email = String(active.customerEmail ?? "").trim();
-  if (!email) {
-    toast("No customer email");
-    return;
-  }
-  const subject = `Air con triage details${active.leadNumber ? ` - ${active.leadNumber}` : ""}`;
-  const body = customerMessageText(active);
-  window.location.href = `mailto:${encodeURIComponent(email)}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
-}
-
-async function saveImageFile(dataUrl, fileName) {
-  const file = await dataUrlToFile(dataUrl, fileName);
-  if (navigator.canShare?.({ files: [file] })) {
-    await navigator.share({ files: [file], title: fileName });
-    return;
-  }
-  downloadDataUrl(dataUrl, fileName);
-}
-
-async function dataUrlToFile(dataUrl, fileName) {
-  const blob = await dataUrlToBlob(dataUrl);
-  return new File([blob], fileName, { type: blob.type || "image/png" });
+function photoFileName(photo, index) {
+  return `${String(index + 1).padStart(2, "0")}-${safeFileName(photo.label || photo.name || `photo-${index + 1}`)}.jpg`;
 }
 
 async function dataUrlToBlob(dataUrl) {
   const response = await fetch(dataUrl);
   return response.blob();
-}
-
-function downloadDataUrl(dataUrl, fileName) {
-  const link = document.createElement("a");
-  link.href = dataUrl;
-  link.download = fileName;
-  link.click();
 }
 
 function downloadBlob(blob, fileName) {
@@ -1460,8 +811,7 @@ function createZipBlob(files) {
   }
 
   const centralSize = centralParts.reduce((sum, part) => sum + part.length, 0);
-  const end = zipEndRecord(files.length, centralSize, offset);
-  return new Blob([...localParts, ...centralParts, end], { type: "application/zip" });
+  return new Blob([...localParts, ...centralParts, zipEndRecord(files.length, centralSize, offset)], { type: "application/zip" });
 }
 
 function zipLocalHeader(nameBytes, size, crc) {
@@ -1506,19 +856,83 @@ function zipEndRecord(count, centralSize, centralOffset) {
 
 function crc32(bytes) {
   let crc = 0xffffffff;
-  for (const byte of bytes) {
-    crc = CRC_TABLE[(crc ^ byte) & 0xff] ^ (crc >>> 8);
-  }
+  for (const byte of bytes) crc = CRC_TABLE[(crc ^ byte) & 0xff] ^ (crc >>> 8);
   return (crc ^ 0xffffffff) >>> 0;
 }
 
 const CRC_TABLE = Array.from({ length: 256 }, (_, index) => {
   let crc = index;
-  for (let bit = 0; bit < 8; bit += 1) {
-    crc = crc & 1 ? 0xedb88320 ^ (crc >>> 1) : crc >>> 1;
-  }
+  for (let bit = 0; bit < 8; bit += 1) crc = crc & 1 ? 0xedb88320 ^ (crc >>> 1) : crc >>> 1;
   return crc >>> 0;
 });
+
+function setValueAt(object, path, value) {
+  const parts = path.split(".");
+  let target = object;
+  for (const part of parts.slice(0, -1)) {
+    target[part] ||= {};
+    target = target[part];
+  }
+  target[parts[parts.length - 1]] = value;
+}
+
+async function copyText(text) {
+  await navigator.clipboard.writeText(text);
+  toast("Copied");
+}
+
+function completedQuestionCount(active) {
+  return evaluateQuestions(active).filter((question) => question.complete).length;
+}
+
+function inferPhotoType(name) {
+  const value = name.toLowerCase();
+  if (value.includes("fuse") || value.includes("consumer")) return "fuse_board";
+  if (value.includes("meter")) return "electric_meter";
+  if (value.includes("outdoor") || value.includes("outside")) return "outdoor_location";
+  if (value.includes("indoor") || value.includes("room")) return "indoor_location";
+  if (value.includes("floor")) return "floorplan";
+  return "other";
+}
+
+function screenLabel(screen) {
+  return ({
+    intake: "Intake",
+    evidence: "Evidence",
+    call: "Customer call",
+    outstanding: "Outstanding",
+    handover: "Handover",
+    advanced: "Advanced / AI review",
+  })[screen] || screen;
+}
+
+function statusLabel(status) {
+  return String(status || "").replace(/_/g, " ").replace(/\b\w/g, (char) => char.toUpperCase());
+}
+
+function resolverLabel(type) {
+  return ({
+    customer: "customer",
+    customer_photo: "photo",
+    internal: "internal",
+    admin: "BG/admin",
+    surveyor: "surveyor",
+  })[type] || type;
+}
+
+function formatDateTime(value) {
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? value : date.toLocaleString();
+}
+
+function options(values, selected) {
+  return values.map((value) => `<option value="${attr(value)}" ${value === selected ? "selected" : ""}>${escapeHtml(statusLabel(value))}</option>`).join("");
+}
+
+function cssEscape(value) {
+  if (globalThis.CSS?.escape) return CSS.escape(value);
+  return String(value).replace(/"/g, "\\\"");
+}
 
 function toast(message) {
   const element = document.createElement("div");
@@ -1526,26 +940,6 @@ function toast(message) {
   element.textContent = message;
   document.body.append(element);
   setTimeout(() => element.remove(), 1600);
-}
-
-function options(values, selected) {
-  return values.map((value) => `<option value="${attr(value)}" ${value === selected ? "selected" : ""}>${escapeHtml(optionLabel(value))}</option>`).join("");
-}
-
-function nextActionLabel(value) {
-  return ({
-    send_customer_message: "Send customer message",
-    wait_for_reply: "Wait for reply",
-    review_again: "Review again",
-    copy_handover_to_salesforce: "Copy handover to Salesforce",
-  })[value] || "Review again";
-}
-
-function optionLabel(value) {
-  if (!value) return "Auto";
-  return nextActionLabel(value) === "Review again" && value !== "review_again"
-    ? String(value).replace(/_/g, " ")
-    : nextActionLabel(value);
 }
 
 function escapeHtml(value) {
@@ -1563,5 +957,5 @@ function attr(value) {
 }
 
 function safeFileName(value) {
-  return String(value).toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "") || "photo";
+  return String(value).toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "") || "file";
 }
