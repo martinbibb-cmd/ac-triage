@@ -161,7 +161,7 @@ function intakeScreen(active) {
         <label>Phone<input data-field="contactNumber" value="${attr(active.contactNumber)}"></label>
         <label>Email<input type="email" data-field="customerEmail" value="${attr(active.customerEmail)}"></label>
         <label class="span-two">Address<textarea data-field="address">${escapeHtml(active.address || "")}</textarea></label>
-        <label>Quoted package<input data-case-detail="quotedPackage" value="${attr(active.caseDetails?.quotedPackage || "")}"></label>
+        <label>Quoted package<textarea data-case-detail="quotedPackage">${escapeHtml(active.caseDetails?.quotedPackage || "")}</textarea></label>
         <label>Number of indoor units<input inputmode="numeric" data-case-detail="indoorUnitCount" value="${attr(active.caseDetails?.indoorUnitCount || active.indoorUnits?.length || 1)}"></label>
         <label>Planning status<input data-case-detail="planningStatus" value="${attr(active.caseDetails?.planningStatus || "")}"></label>
         <label>Install date<input data-case-detail="installDate" value="${attr(active.caseDetails?.installDate || "")}"></label>

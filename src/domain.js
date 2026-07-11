@@ -1492,7 +1492,11 @@ function socketSummary(caseData) {
 
 function preferencesSummary(caseData) {
   return (caseData.indoorUnits ?? [])
-    .map((unit) => [unit.room, unit.trunkingColour === "Other" ? unit.trunkingOther : unit.trunkingColour].filter(Boolean).join(": trunking "))
+    .map((unit) => {
+      const colour = clean(unit.trunkingColour === "Other" ? unit.trunkingOther : unit.trunkingColour);
+      if (!colour) return "";
+      return [unit.room, colour].filter(Boolean).join(": trunking ");
+    })
     .filter(Boolean)
     .join("; ");
 }

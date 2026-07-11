@@ -83,6 +83,7 @@ test("Salesforce handover omits empty headings and invented values", () => {
   assert.match(handover, /Lead/);
   assert.doesNotMatch(handover, /Outdoor unit:/);
   assert.doesNotMatch(handover, /relevant socket\/location evidence/);
+  assert.doesNotMatch(handover, /Customer preferences:/);
   assert.doesNotMatch(handover, /undefined|null|TBC|To confirm/);
 });
 
