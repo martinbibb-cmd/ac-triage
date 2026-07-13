@@ -272,6 +272,32 @@ button.active {
   color: var(--brand);
 }
 
+.lead-summary {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 8px;
+}
+
+.lead-summary div {
+  display: grid;
+  gap: 3px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #f8fafb;
+  padding: 10px;
+}
+
+.lead-summary span {
+  color: var(--muted);
+  font-size: 0.85rem;
+  font-weight: 850;
+  text-transform: uppercase;
+}
+
+.lead-summary strong {
+  overflow-wrap: anywhere;
+}
+
 .upload-row {
   display: grid;
   grid-template-columns: minmax(0, 1fr) minmax(220px, 320px);
