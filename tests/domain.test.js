@@ -4,6 +4,8 @@ import {
   buildCaseTimeline,
   createEmptyCase,
   extractSalesforceLeadDetails,
+  generateCallBrief,
+  generateCallEPrompt,
   generateAiReviewPack,
   generateAiReviewPackJson,
   generateAiReviewPrompt,
@@ -430,6 +432,54 @@ test("generateAiReviewPrompt instructs model not to invent information", () => {
   assert.match(prompt, /bg\.ac_triage\.ai_result\.v1/);
   assert.match(prompt, /normalised photo coordinates from 0 to 1/);
   assert.match(prompt, /photoAnnotations/);
+});
+
+test("generateCallBrief creates a CALL-E-ready brief with only unanswered questions", () => {
+  const triageCase = createEmptyCase();
+  triageCase.sourceDetails = `
+    CHI Lead Num
+    50773906
+    Customer Name
+    Chris Beetham
+    Mobile Phone
+    07700 900123
+  `;
+  triageCase.installDate = "2026-09-10";
+  triageCase.planningDate = "2026-09-01";
+  triageCase.checklist.customerPhotosPresent = true;
+  triageCase.checklist.electricMeterPhoto = true;
+  triageCase.checklist.fuseBoardPhoto = true;
+  triageCase.checklist.internalUnitLocationChecked = true;
+  triageCase.rooms[0].internalLocation = "Bedroom outside wall";
+  triageCase.rooms[0].pipeRun = "Straight through wall";
+  triageCase.rooms[0].trunkingColour = "White";
+  triageCase.rooms[0].plugLocation = "Socket beside bed";
+  triageCase.outsideUnit.location = "Rear patio";
+  triageCase.outsideUnit.clearances = "Clear";
+  triageCase.outsideUnit.ladderAccess = "No ladder required";
+  triageCase.photos = [{
+    id: "photo-1",
+    name: "indoor.jpg",
+    label: "Indoor",
+    type: "indoor_location",
+    notes: "",
+    requestedAnnotation: "",
+    marks: [],
+  }];
+
+  const brief = generateCallBrief(triageCase);
+  const prompt = generateCallEPrompt(triageCase);
+
+  assert.equal(brief.schema, "bg.ac_triage.call_brief.v1");
+  assert.equal(brief.lead.leadNumber, "50773906");
+  assert.equal(brief.lead.customerName, "Chris Beetham");
+  assert.equal(brief.lead.contactNumber, "07700900123");
+  assert.ok(brief.unansweredQuestions.length > 0);
+  assert.ok(brief.unansweredQuestions.every((question) => question.key && question.question));
+  assert.match(brief.unansweredQuestions.map((question) => question.question).join("\n"), /photo|send|outdoor|unit/i);
+  assert.match(prompt, /Use CALL-E to call this customer/);
+  assert.match(prompt, /bg\.ac_triage\.call_result\.v1/);
+  assert.doesNotMatch(prompt, /```/);
 });
 
 test("generateAiReviewPack includes previous AI decision and customer reply", () => {

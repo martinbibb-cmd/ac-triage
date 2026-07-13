@@ -12,6 +12,7 @@ import {
   evaluateQuestions,
   exportPortableCase,
   extractSalesforceLeadDetails,
+  generateCallEPrompt,
   generateAiReviewPackJson,
   generateAiReviewPrompt,
   generateOutputs,
@@ -233,6 +234,9 @@ function callScreen(active) {
         <p class="eyebrow">Customer call</p>
         <h2>${questions.length ? `${questions.length} customer item${questions.length === 1 ? "" : "s"}` : "No customer questions outstanding"}</h2>
       </div>
+      <div class="primary-actions">
+        <button data-action="copy-calle-prompt">Copy CALL-E prompt</button>
+      </div>
       <div class="stack">
         ${questions.map(callQuestion).join("") || `<p class="ok">Customer-solvable items are complete.</p>`}
       </div>
@@ -288,10 +292,10 @@ function advancedScreen(active) {
         <button data-action="copy-ai-pack">Copy AI review JSON</button>
         <button data-action="download-ai-pack">Download AI review pack ZIP</button>
       </div>
-      <label>Paste AI JSON result
-        <textarea class="large-input ai-result-input" placeholder='{"schema":"bg.ac_triage.ai_result.v1",...}'></textarea>
+      <label>Paste AI or CALL-E JSON result
+        <textarea class="large-input ai-result-input" placeholder='{"schema":"bg.ac_triage.ai_result.v1",...} or {"schema":"bg.ac_triage.call_result.v1",...}'></textarea>
       </label>
-      <button class="primary" data-action="import-ai-result">Import as suggestions</button>
+      <button class="primary" data-action="import-ai-result">Import JSON result</button>
     </section>
     <section class="panel">
       <h2>Pending AI suggestions</h2>
@@ -564,6 +568,10 @@ async function handleAction(event) {
     await copyText(generateAiReviewPrompt());
     return;
   }
+  if (action === "copy-calle-prompt") {
+    await copyText(generateCallEPrompt(active));
+    return;
+  }
   if (action === "copy-ai-pack") {
     await copyText(generateAiReviewPackJson(active));
     return;
@@ -721,6 +729,11 @@ async function importAiResult(active) {
     return;
   }
 
+  if (result.schema === "bg.ac_triage.call_result.v1") {
+    await importCallResult(active, result);
+    return;
+  }
+
   active.reviewRounds ||= [];
   active.reviewRounds.push({
     id: crypto.randomUUID(),
@@ -737,6 +750,73 @@ async function importAiResult(active) {
   active.timeline = buildCaseTimeline(active);
   await persistActive(active);
   toast("AI suggestions imported");
+}
+
+async function importCallResult(active, result) {
+  active.customerReplies ||= [];
+  active.customerReplies.push({
+    id: crypto.randomUUID(),
+    receivedAt: new Date().toISOString(),
+    text: [result.customerReply, result.transcript].filter(Boolean).join("\n\n"),
+    photoIds: [],
+    notes: `CALL-E result: ${result.callStatus || "unknown"}`,
+  });
+
+  for (const answer of result.answers?.questionAnswers ?? []) {
+    if (!answer.key) continue;
+    active.answers ||= {};
+    active.answers[answer.key] = {
+      value: answer.answer || "",
+      state: answer.state || (answer.uncertain ? "awaiting_customer" : "confirmed"),
+      notes: answer.uncertain ? `Uncertain: ${answer.answer || ""}` : answer.answer || "",
+      source: "call_e",
+      updatedAt: new Date().toISOString(),
+    };
+    const question = evaluateQuestions(active).find((item) => item.key === answer.key);
+    if (question?.category && active.evidenceStates?.[question.category]) {
+      active.evidenceStates[question.category].state = active.answers[answer.key].state;
+      active.evidenceStates[question.category].notes = active.answers[answer.key].notes;
+      active.evidenceStates[question.category].updatedAt = new Date().toISOString();
+    }
+  }
+
+  for (const [index, unitAnswer] of (result.answers?.indoorUnits ?? []).entries()) {
+    const unit = active.indoorUnits?.find((item) => item.id === unitAnswer.id) || active.indoorUnits?.[index];
+    if (!unit) continue;
+    if (unitAnswer.room) unit.room = unitAnswer.room;
+    if (unitAnswer.agreedLocation) unit.agreedLocation = unitAnswer.agreedLocation;
+    if (unitAnswer.pipeRoute) unit.pipeRoute = unitAnswer.pipeRoute;
+    if (unitAnswer.trunkingColour) unit.trunkingColour = unitAnswer.trunkingColour;
+    if (unitAnswer.nearestSocket) unit.nearestSocket = unitAnswer.nearestSocket;
+  }
+
+  if (result.answers?.outdoorUnit) {
+    active.outdoorUnit ||= {};
+    for (const field of ["location", "route", "clearances", "access"]) {
+      if (result.answers.outdoorUnit[field]) active.outdoorUnit[field] = result.answers.outdoorUnit[field];
+    }
+  }
+
+  const requestedPhotos = result.answers?.requestedPhotos ?? [];
+  if (requestedPhotos.length) {
+    active.caseDetails ||= {};
+    active.caseDetails.callPhotoRequests = requestedPhotos.join(" | ");
+  }
+
+  active.reviewRounds ||= [];
+  active.reviewRounds.push({
+    id: crypto.randomUUID(),
+    round: active.reviewRounds.length + 1,
+    sentAt: new Date().toISOString(),
+    inputSummary: "Imported CALL-E JSON result",
+    aiDecision: result.blockers?.length ? "missing_info" : "",
+    aiOutput: JSON.stringify(result, null, 2),
+    customerMessage: "",
+    outstandingBlockers: Array.isArray(result.blockers) ? result.blockers.join("\n") : "",
+  });
+  active.timeline = buildCaseTimeline(active);
+  await persistActive(active);
+  toast("CALL-E result imported");
 }
 
 async function resolveAiSuggestion(active, id, accept) {
@@ -966,8 +1046,22 @@ function setValueAt(object, path, value) {
 }
 
 async function copyText(text) {
-  await navigator.clipboard.writeText(text);
+  await navigator.clipboard.writeText(toPlainText(text));
   toast("Copied");
+}
+
+function toPlainText(value) {
+  const text = String(value ?? "")
+    .replace(/<br\s*\/?>/gi, "\n")
+    .replace(/<\/p>/gi, "\n")
+    .replace(/<[^>]+>/g, "")
+    .replace(/\u00a0/g, " ");
+  const textarea = document.createElement("textarea");
+  textarea.innerHTML = text;
+  return textarea.value
+    .replace(/\r\n/g, "\n")
+    .replace(/[ \t]+\n/g, "\n")
+    .trim();
 }
 
 function completedQuestionCount(active) {

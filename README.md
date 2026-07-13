@@ -11,6 +11,7 @@ The form is the primary intelligence. The app asks what evidence is already avai
 3. Correct case details manually and record quoted package, indoor-unit count, install/planning details, and photos.
 4. Use **Evidence** to mark each evidence category as confirmed, missing, unclear, not applicable, awaiting customer, or awaiting internal clarification.
 5. Use **Customer call** during a live call. It shows only customer-solvable outstanding questions with large quick-action controls.
+   You can also copy a plain-text CALL-E prompt from this screen for an ad hoc connector call using the same unanswered questions.
 6. Use **Outstanding** to separate customer questions, customer photos, internal technical clarification, BG/admin issues, and surveyor review.
 7. Use **Handover** to copy the Salesforce handover note, customer follow-up message, internal questions, and manager completion message.
 
@@ -46,6 +47,8 @@ The ZIP export contains `case.json` plus original photos and annotated photos wh
 - `AC-50773906-Smith-triage.zip`
 
 Imported cases are validated through the schema migration path. Older round-trip style cases and review packs are migrated where practical.
+
+CALL-E call result JSON can be pasted into the Advanced import box. The app stores the call summary/transcript, applies structured answers where possible, and re-runs the deterministic outstanding-question logic.
 
 ## Optional AI Review
 

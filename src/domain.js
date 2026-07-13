@@ -615,6 +615,110 @@ export function generateCustomerRequestMessage(caseData) {
   ].join("\n");
 }
 
+export function generateCallBrief(caseData) {
+  const extracted = extractSalesforceLeadDetails(caseData.sourceDetails);
+  const customerQuestions = evaluateQuestions(caseData)
+    .filter((question) => !question.complete && ["customer", "customer_photo"].includes(question.resolverType) && question.customerQuestion);
+  return {
+    schema: "bg.ac_triage.call_brief.v1",
+    goal: "Call the customer and complete only the unanswered air-con triage questions.",
+    lead: {
+      leadNumber: clean(caseData.leadNumber) || extracted.leadNumber || "",
+      customerName: clean(caseData.customerName) || extracted.customerName || "",
+      contactNumber: clean(caseData.contactNumber) || extracted.contactNumber || "",
+      customerEmail: clean(caseData.customerEmail) || extracted.customerEmail || "",
+      address: clean(caseData.address) || extracted.address || "",
+    },
+    callRules: [
+      "Ask only the questions listed in unansweredQuestions.",
+      "Do not ask the customer for internal admin information.",
+      "If photos are needed, ask the customer to send them after the call.",
+      "If the customer is unsure, mark the answer as uncertain rather than guessing.",
+      "Return JSON only using schema bg.ac_triage.call_result.v1.",
+    ],
+    unansweredQuestions: customerQuestions.map((question) => ({
+      key: question.key,
+      question: question.customerQuestion,
+      category: question.category,
+      resolverType: question.resolverType,
+      why: question.why,
+    })),
+    knownContext: {
+      indoorUnits: (caseData.indoorUnits ?? []).map((unit, index) => ({
+        id: unit.id || String(index),
+        room: clean(unit.room || unit.roomName),
+        agreedLocation: clean(unit.agreedLocation || unit.internalLocation),
+        pipeRoute: clean(unit.pipeRoute || unit.pipeRun),
+        trunkingColour: clean(unit.trunkingColour),
+        nearestSocket: clean(unit.nearestSocket || unit.plugLocation),
+      })),
+      outdoorUnit: {
+        location: clean(caseData.outdoorUnit?.location || caseData.outsideUnit?.location),
+        route: clean(caseData.outdoorUnit?.route),
+        clearances: clean(caseData.outdoorUnit?.clearances || caseData.outsideUnit?.clearances),
+        access: clean(caseData.outdoorUnit?.access || caseData.outsideUnit?.ladderAccess),
+      },
+      evidence: {
+        photoCount: caseData.photos?.length ?? 0,
+        indoorLocationPhotoPresent: hasPhotoType(caseData, "indoor_location"),
+        outdoorLocationPhotoPresent: hasPhotoType(caseData, "outdoor_location"),
+        electricMeterPhotoPresent: hasPhotoType(caseData, "electric_meter"),
+        fuseBoardPhotoPresent: hasPhotoType(caseData, "fuse_board"),
+        evidenceStates: caseData.evidenceStates ?? {},
+      },
+    },
+    expectedResultSchema: {
+      schema: "bg.ac_triage.call_result.v1",
+      callStatus: "completed | no_answer | voicemail | wrong_number | customer_declined",
+      customerReply: "Short factual summary of what the customer said",
+      transcript: "Call transcript or detailed call notes",
+      answers: {
+        questionAnswers: [{
+          key: "question key from unansweredQuestions",
+          answer: "",
+          state: "confirmed | awaiting_customer | awaiting_internal_clarification | not_applicable",
+          uncertain: false,
+        }],
+        indoorUnits: [{
+          id: "",
+          room: "",
+          agreedLocation: "",
+          pipeRoute: "",
+          trunkingColour: "",
+          nearestSocket: "",
+          uncertain: false,
+        }],
+        outdoorUnit: {
+          location: "",
+          route: "",
+          clearances: "",
+          access: "",
+          uncertain: false,
+        },
+        requestedPhotos: ["Specific photos the customer agreed to send"],
+      },
+      blockers: ["Anything still missing after the call"],
+      nextAction: "wait_for_reply | review_again | copy_handover_to_salesforce",
+    },
+  };
+}
+
+export function generateCallEPrompt(caseData) {
+  return [
+    "Use CALL-E to call this customer and complete the air-con triage call.",
+    "",
+    "Call brief JSON:",
+    JSON.stringify(generateCallBrief(caseData), null, 2),
+    "",
+    "Important:",
+    "- Use the phone number in lead.contactNumber.",
+    "- Ask only unansweredQuestions.",
+    "- Keep the call practical and short.",
+    "- Return JSON only using schema bg.ac_triage.call_result.v1 so it can be pasted back into the triage app.",
+    "- Do not include markdown fences.",
+  ].join("\n");
+}
+
 export function generateHandoverNotes(caseData) {
   const rooms = caseData.rooms?.length ? caseData.rooms : [createEmptyRoom()];
   const outsideUnit = caseData.outsideUnit ?? createEmptyOutsideUnit();
